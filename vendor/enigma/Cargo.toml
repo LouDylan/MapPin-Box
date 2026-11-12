@@ -1,0 +1,9 @@
+# The upstream workspace reduced to the two crates used by Waypin Box.
+[workspace]
+members = ["apps/embedded/bridge-protocol", "apps/embedded/core"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-only"
+version = "0.2.0"

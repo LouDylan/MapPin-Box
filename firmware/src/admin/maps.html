@@ -1,0 +1,27 @@
+<section id="maps" class="admin-section" aria-labelledby="map-settings-title"><div class="section-heading"><h2 id="map-settings-title">地图服务</h2></div><div class="region-settings">
+<form id="map-domestic-form" class="admin-form map-region-form" aria-label="国内地图设置" novalidate autocomplete="off">
+<div class="section-heading"><h3>国内</h3><span id="map-domestic-state" class="section-meta">读取中</span></div>
+<label class="sr-only" for="map-domestic-provider">国内地图源</label><select id="map-domestic-provider"><option value="amap">高德地图</option><option value="tianditu">天地图</option></select>
+<p id="map-domestic-help" class="field-note map-source-note"></p>
+<div id="map-domestic-credentials" class="form-grid map-credentials"><div><label id="map-domestic-key-label" for="map-domestic-key">API Key</label><input id="map-domestic-key" type="password" placeholder="粘贴 Key" maxlength="128" autocomplete="off" autocapitalize="none" spellcheck="false"></div><div id="map-domestic-security-field"><label for="map-domestic-security-code">安全密钥</label><input id="map-domestic-security-code" type="password" placeholder="粘贴安全密钥" maxlength="128" autocomplete="off" autocapitalize="none" spellcheck="false"></div></div>
+<div class="form-actions"><button id="map-domestic-save" class="primary" type="submit" aria-label="保存国内地图">保存</button><a id="map-domestic-console" target="_blank" rel="noopener noreferrer">平台控制台</a></div>
+<p id="map-domestic-message" class="inline-message" role="status" hidden></p>
+</form>
+<form id="map-global-form" class="admin-form map-region-form" aria-label="国外地图设置" novalidate autocomplete="off">
+<div class="section-heading"><h3>国外</h3><span id="map-global-state" class="section-meta">读取中</span></div>
+<label class="sr-only" for="map-global-provider">国外地图源</label><select id="map-global-provider"><option value="osm">开源地图</option><option value="google">Google 地图</option></select>
+<p id="map-global-help" class="field-note map-source-note"></p>
+<div id="map-global-credentials" class="form-grid map-credentials"><div><label id="map-global-key-label" for="map-global-key">API Key</label><input id="map-global-key" type="password" placeholder="粘贴 Key" maxlength="128" autocomplete="off" autocapitalize="none" spellcheck="false"></div><div id="map-global-security-field"><label for="map-global-security-code">安全密钥</label><input id="map-global-security-code" type="password" placeholder="粘贴安全密钥" maxlength="128" autocomplete="off" autocapitalize="none" spellcheck="false"></div></div>
+<div class="form-actions"><button id="map-global-save" class="primary" type="submit" aria-label="保存国外地图">保存</button><a id="map-global-console" target="_blank" rel="noopener noreferrer">平台控制台</a></div>
+<p id="map-global-message" class="inline-message" role="status" hidden></p>
+</form>
+</div></section>
+<section id="backup" class="admin-section" aria-labelledby="backup-title">
+  <div class="section-heading"><h2 id="backup-title">收藏备份</h2><span id="backup-count" class="section-meta">—</span></div>
+  <div class="form-actions">
+    <button id="export-favorites" class="secondary" type="button" disabled><span data-lucide="download" aria-hidden="true"></span>导出收藏</button>
+    <button id="import-favorites" class="secondary" type="button" disabled><span data-lucide="upload" aria-hidden="true"></span>导入收藏</button>
+  </div>
+  <input id="import-file" class="sr-only" type="file" accept=".json,application/json" tabindex="-1">
+  <p id="backup-message" class="inline-message" role="status" hidden></p>
+</section>

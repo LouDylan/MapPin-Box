@@ -1,0 +1,51 @@
+<section id="network" class="admin-section" aria-labelledby="network-title">
+  <div class="section-heading"><h2 id="network-title">Wi-Fi 连接</h2><span class="section-meta">2.4 GHz</span></div>
+  <div class="network-part">
+    <h3>盒子热点</h3>
+    <dl class="info-grid">
+      <div><dt>当前名称</dt><dd id="wifi-ap-name">—</dd></div>
+      <div><dt>管理地址</dt><dd id="wifi-ap-address">—</dd></div>
+      <div><dt>热点信道</dt><dd id="wifi-channel">—</dd></div>
+      <div><dt>连接设备</dt><dd id="wifi-client-count">—</dd></div>
+    </dl>
+    <ul id="wifi-clients" class="client-list" aria-label="热点连接设备"></ul>
+    <p id="wifi-lock" class="inline-notice" role="status" hidden></p>
+    <form id="hotspot-form" class="admin-form" autocomplete="off" novalidate>
+      <div class="form-grid">
+        <div><label for="hotspot-ssid">热点名称</label><input id="hotspot-ssid" type="text" maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+        <div><label for="hotspot-password">新密码</label><input id="hotspot-password" type="password" maxlength="63" autocomplete="new-password" placeholder="留空保持当前密码" autocapitalize="none" spellcheck="false"><label class="password-toggle"><input id="show-hotspot-password" type="checkbox">显示密码</label></div>
+      </div>
+      <div class="form-actions"><button id="save-hotspot" class="primary" type="submit" disabled>保存热点设置</button><span class="field-note">修改后需重新连接热点</span></div>
+    </form>
+    <div id="hotspot-confirm" class="inline-confirm" role="group" aria-label="确认修改盒子热点" hidden>
+      <p id="hotspot-confirm-text"></p>
+      <div class="form-actions"><button id="confirm-hotspot" class="secondary" type="button">确认修改</button><button id="cancel-hotspot" class="muted-button" type="button">取消</button></div>
+    </div>
+    <div id="hotspot-reconnect" class="reconnect-panel" role="status" hidden>
+      <strong id="hotspot-reconnect-title">正在应用热点设置</strong>
+      <p>请在手机 Wi-Fi 设置中加入 <b id="hotspot-target"></b>，使用热点密码。</p>
+      <div class="form-actions"><button id="check-hotspot" class="secondary" type="button">已重新连接，检测状态</button></div>
+    </div>
+    <p id="hotspot-message" class="inline-message" role="status" hidden></p>
+  </div>
+  <div class="network-part">
+    <div class="section-heading"><h3>上游 Wi-Fi</h3><button id="scan-wifi" class="secondary" type="button"><span data-lucide="search" aria-hidden="true"></span>扫描网络</button></div>
+    <dl class="info-grid">
+      <div><dt>当前网络</dt><dd id="wifi-upstream-name">未连接</dd></div>
+      <div><dt>地址 / DNS</dt><dd id="wifi-upstream-address">—</dd></div>
+    </dl>
+    <form id="wifi-form" class="admin-form" autocomplete="off" novalidate>
+      <div class="form-grid">
+        <div><label for="wifi-ssid">网络名称</label><input id="wifi-ssid" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="扫描选择，或手动填写"></div>
+        <div><label for="wifi-password">密码</label><input id="wifi-password" type="password" autocomplete="off" placeholder="开放网络留空" maxlength="63"></div>
+      </div>
+      <div class="form-actions"><button id="connect-wifi" class="primary" type="submit">连接并保存</button><button id="disconnect-wifi" class="muted-button" type="button" disabled>断开并忘记</button></div>
+    </form>
+    <div id="wifi-disconnect-confirm" class="inline-confirm" role="group" aria-label="确认断开上游网络" hidden>
+      <p>断开并忘记上游 Wi-Fi？</p>
+      <div class="form-actions"><button id="confirm-wifi-disconnect" class="secondary" type="button">确认断开</button><button id="cancel-wifi-disconnect" class="muted-button" type="button">取消</button></div>
+    </div>
+    <p id="wifi-message" class="inline-message" role="status">尚未连接上游网络。</p>
+    <div id="wifi-networks" class="network-list" aria-live="polite"></div>
+  </div>
+</section>

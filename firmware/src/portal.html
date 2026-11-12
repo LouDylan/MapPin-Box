@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4f6f8">
+<title>Waypin Box · 移点盒</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<div class="shell">
+<header class="header">
+  <div class="brand"><span class="brand-mark" data-lucide="locate-fixed" aria-hidden="true"></span><h1 class="brand-name">Waypin Box<small>移点盒</small></h1><span id="connection" class="connection" data-online="false" role="status"><i aria-hidden="true"></i><span id="connection-label">连接中</span></span><span id="preview-label" class="preview-label" hidden>交互预览</span></div>
+  <a id="open-settings" class="muted-button" href="/admin" aria-label="设置"><span data-lucide="settings-2" aria-hidden="true"></span><span>设置</span></a>
+</header>
+<main>
+  <p id="preview-notice" class="preview-notice" hidden>地点搜索与地图为真实数据，定位操作仅演示，不会修改手机位置。</p>
+  <div id="offline-banner" class="offline-banner" hidden role="status"><span data-lucide="wifi" aria-hidden="true"></span><span id="offline-text">无法连接盒子，请检查供电和 Wi-Fi。</span><button id="reconnect" type="button">重新连接</button></div>
+  <section id="position-card" class="position-card" data-mode="unknown" aria-labelledby="current-title">
+    <div class="position-icon"><span data-lucide="locate-fixed" aria-hidden="true"></span></div>
+    <div class="status-body"><div class="status-heading"><span>当前设置</span><span id="mode-label" class="mode-label">读取中</span></div><h2 id="current-title" aria-live="polite">正在连接</h2><p id="current-caption" class="card-caption">正在读取定位状态。</p><div id="activity" class="activity" hidden><span class="spinner" data-lucide="loader-circle" aria-hidden="true"></span><span id="activity-label" class="sr-only">正在执行</span><span id="elapsed">0 秒</span></div></div>
+    <button id="restore" class="secondary position-restore" type="button"><span data-lucide="rotate-ccw" aria-hidden="true"></span><span id="restore-label">恢复真实定位</span></button>
+  </section>
+  <section id="error-panel" class="error-panel" hidden aria-live="polite"><strong>操作未完成</strong><p id="error-message"></p><a class="text-button" href="/admin/help#iphone">接入或重新准备 iPhone</a><details><summary>详细信息</summary><pre id="error-detail"></pre></details></section>
+  <div class="workspace">
+      <div class="destination-search"><div class="search-region" role="group" aria-label="搜索范围"><button id="region-domestic" type="button" aria-pressed="true">国内</button><button id="region-global" type="button" aria-pressed="false">国外</button><span id="region-progress" role="status" hidden>切换中…</span></div><label class="sr-only" for="destination-query">搜索地点或地址</label><form id="destination-form" class="destination-form" role="search"><span data-lucide="search" aria-hidden="true"></span><input id="destination-query" type="search" placeholder="搜索地点或地址" enterkeyhint="search" autocomplete="off" maxlength="120" aria-controls="search-results"><button id="clear-query" class="search-clear" type="button" aria-label="清空搜索" hidden><span data-lucide="x" aria-hidden="true"></span></button><button id="destination-submit" class="primary" type="submit">搜索</button></form><div id="search-setup" class="search-setup" hidden><span>检查地图配置</span><button id="configure-map" type="button">去配置</button></div></div>
+      <section id="search-view" class="places-panel" aria-labelledby="search-results-title" hidden><div class="list-heading"><h2 id="search-results-title">搜索结果<span id="result-count" class="count"></span></h2></div><p id="search-message" class="search-message" role="status"></p><div id="search-results" class="search-results"></div><button id="search-globally" class="text-button search-globally" type="button" hidden>改用国外搜索</button><p id="search-credit" class="search-credit"></p></section>
+    <section class="map-panel" aria-label="地图确认">
+      <div class="map-frame"><div id="place-map" role="region" aria-label="地点确认地图" tabindex="0"></div><div id="map-loading" class="map-loading" role="status" aria-label="地图加载中"><span class="spinner" data-lucide="loader-circle" aria-hidden="true"></span></div><div class="map-controls"><button id="map-recenter" class="icon-button" type="button" aria-label="回到盒子当前定位" title="盒子当前定位" disabled><span data-lucide="crosshair" aria-hidden="true"></span></button><div class="zoom-controls"><button id="map-zoom-in" class="icon-button" type="button" aria-label="放大地图"><span data-lucide="plus" aria-hidden="true"></span></button><button id="map-zoom-out" class="icon-button" type="button" aria-label="缩小地图"><span data-lucide="minus" aria-hidden="true"></span></button></div></div><div id="map-warning" class="map-warning" role="status" hidden><span id="map-warning-text">地图暂时无法加载，请检查互联网连接。</span><button id="map-retry" type="button">重试</button></div></div>
+      <div id="place-detail" class="place-detail" hidden><div class="selected-copy"><h2 id="selected-name"></h2><p id="selected-address" hidden></p></div><div class="place-actions"><button id="save-selection" class="secondary" type="button" disabled><span data-lucide="star" aria-hidden="true"></span><span id="save-selection-label">收藏</span></button><button id="apply-selection" class="primary" type="button" disabled><span data-lucide="locate-fixed" aria-hidden="true"></span><span id="apply-selection-label">定位到这里</span></button></div><p id="selection-status" class="selection-status" role="status" hidden></p></div>
+    </section>
+      <section id="library-view" class="places-panel" aria-label="已保存的地点"><div class="library-toolbar"><div class="library-tabs" role="tablist" aria-label="已保存的地点"><button id="favorites-tab" type="button" role="tab" aria-selected="true" aria-controls="favorites-pane">常用地点<span id="favorite-count" class="count">0</span></button><button id="recent-tab" type="button" role="tab" aria-selected="false" aria-controls="recent-pane" tabindex="-1">最近使用<span id="recent-count" class="count">0</span></button></div></div>
+        <section id="favorites-pane" role="tabpanel" aria-labelledby="favorites-tab"><div id="search-wrap" class="favorite-filter" hidden><span data-lucide="search" aria-hidden="true"></span><label class="sr-only" for="search">筛选常用地点</label><input id="search" type="search" placeholder="筛选常用地点" autocomplete="off"></div><div id="favorites-list" class="favorites-list"><p class="empty-loading">正在读取收藏…</p></div></section>
+        <section id="recent-pane" role="tabpanel" aria-labelledby="recent-tab" hidden><div class="recent-heading"><button id="clear-history" class="muted-button" type="button" hidden>清空记录</button></div><div id="recent-list" class="recent-list"></div></section>
+      </section>
+  </div>
+</main>
+
+</div>
+<dialog id="place-dialog" aria-labelledby="dialog-title"><form id="place-form" novalidate><div class="dialog-heading"><h2 id="dialog-title">编辑收藏</h2><button id="close-dialog" class="icon-button" type="button" aria-label="关闭地点编辑"><span data-lucide="x" aria-hidden="true"></span></button></div><p id="saved-place-address" class="saved-place-address"></p><label for="place-name">地点名称 <small>最多64个字</small></label><input id="place-name" type="text" maxlength="256" autocomplete="off"><p id="form-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><button id="save-place" class="primary" type="submit">保存修改</button><button id="delete-place" class="danger-link" type="button">删除收藏</button></div></form></dialog>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<noscript><p class="noscript">请允许 Safari 运行 JavaScript，以使用控制页面。</p></noscript>
+</body>
+</html>

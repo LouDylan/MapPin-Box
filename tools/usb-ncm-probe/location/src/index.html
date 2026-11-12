@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>USB 定位测试 · Waypin Box</title>
+<style>
+  :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+  body { max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.5rem; }
+  button { font: inherit; padding: .75rem 1rem; margin: .25rem .5rem .25rem 0; }
+  output { display: block; margin: 1rem 0; overflow-wrap: anywhere; }
+</style>
+<h1>USB 定位测试</h1>
+<button type="button" data-path="/set">定位到上海</button>
+<button type="button" data-path="/restore">恢复真实定位</button>
+<output role="status" aria-live="polite"></output>
+<script>
+  const output = document.querySelector('output');
+  const buttons = document.querySelectorAll('button');
+  for (const button of buttons) {
+    button.addEventListener('click', async () => {
+      for (const item of buttons) item.disabled = true;
+      output.textContent = '正在连接定位服务…';
+      try {
+        const response = await fetch(button.dataset.path, {
+          method: 'POST', headers: {'X-Waypin-Usb-Test': '1'}
+        });
+        output.textContent = await response.text();
+      } catch (error) {
+        output.textContent = 'USB 连接中断，请重新插好数据线后重试。';
+      } finally {
+        for (const item of buttons) item.disabled = false;
+      }
+    });
+  }
+</script>
+</html>

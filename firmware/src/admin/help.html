@@ -1,0 +1,30 @@
+<section id="help" class="admin-section help-section" aria-labelledby="help-title"><div class="section-heading"><h2 id="help-title">使用帮助</h2></div><dl><dt>BOOT 短按</dt><dd>恢复真实定位。</dd><dt>BOOT 长按3秒</dt><dd>重新使用最近一次成功定位的地点。Google 地点在本次定位后10分钟内可重用，超时或重启后需从网页联网定位。</dd><dt>RST</dt><dd>重启盒子，保留配置；重启不会主动发送恢复定位指令。</dd><dt>连接与服务</dt><dd>操作时保持 iPhone 解锁并连接盒子。恢复真实定位并在苹果地图确认后，再断开电源。手机重启或系统升级后，可能需要接 Mac 重新准备定位服务。</dd></dl><a href="/licenses.txt" target="_blank">开源许可</a></section>
+
+<section id="device-backup" class="admin-section" aria-labelledby="device-backup-title">
+  <div class="section-heading"><h2 id="device-backup-title">完整备份</h2></div>
+  <p class="section-hint">包含地图 Key、iPhone 配对资料、Wi-Fi 配置和地点记录，请妥善保管。</p>
+  <div class="form-actions">
+    <button id="export-device-backup" class="primary" type="button" disabled><span data-lucide="download" aria-hidden="true"></span><span id="device-backup-label">导出完整备份</span></button>
+  </div>
+  <p id="device-backup-message" class="inline-message" role="status" hidden></p>
+  <p class="section-hint">恢复时用 USB 将移点盒接到 Mac，运行 <code>恢复盒子备份.command</code>，将 <code>.waypinbackup</code> 文件拖入窗口并按提示确认。</p>
+</section>
+
+<section id="status-light" class="admin-section help-section" aria-labelledby="status-light-title">
+<div class="section-heading"><h2 id="status-light-title">状态灯</h2></div>
+<dl>
+<dt>蓝灯</dt><dd>慢闪等候热点连接，常亮表示已有设备加入。</dd>
+<dt>紫灯呼吸 · 绿灯常亮</dt><dd>紫灯表示正在处理操作，绿灯表示已成功设置模拟定位。</dd>
+<dt>黄灯</dt><dd>两连闪表示待配对，呼吸表示完整备份等候 BOOT 确认。</dd>
+<dt>白灯</dt><dd>启动短亮，恢复真实定位后闪两次。备份确认后短亮。</dd>
+<dt>红灯三闪</dt><dd>操作失败。若反复三闪，表示盒子启动失败。</dd>
+</dl>
+</section>
+
+<section id="iphone" class="admin-section help-section" aria-labelledby="iphone-title">
+<div class="section-heading"><h2 id="iphone-title">接入新 iPhone</h2></div>
+<p class="help-phone">当前手机：<strong id="help-phone">读取中</strong><span id="help-model" hidden></span></p>
+<ol class="setup-steps"><li><strong>连接 Mac</strong><p>用数据线将 iPhone 和盒子接到 Mac，解锁 iPhone。</p></li><li><strong>运行接入助手</strong><p>在 Mac 双击 <code>接入新iPhone.command</code>，按提示信任电脑、开启开发者模式，并导入配对资料。</p></li><li><strong>连接盒子热点</strong><p>完成后，iPhone 加入 <strong id="help-ssid">盒子热点</strong>，使用热点密码，在 Safari 打开 <a href="/">192.168.71.1</a>。</p></li></ol>
+<p id="help-replace" class="section-hint" hidden>更换手机前先恢复旧手机真实定位。更换配对会保留收藏、地图凭证和 Wi-Fi 配置。</p>
+<dl class="setup-recovery"><dt>手机重启或升级后无法使用</dt><dd>把 iPhone 接回 Mac，运行 <code>准备iPhone定位服务.command</code>。加入热点不会自动完成新手机的首次配对。</dd></dl>
+</section>

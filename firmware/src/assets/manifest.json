@@ -1,0 +1,17 @@
+[
+  {
+    "package": "lucide-static",
+    "version": "1.69.0",
+    "source": "https://registry.npmjs.org/lucide-static/-/lucide-static-1.69.0.tgz"
+  },
+  {
+    "package": "coordtransform",
+    "version": "2.1.2",
+    "source": "https://registry.npmjs.org/coordtransform/-/coordtransform-2.1.2.tgz"
+  },
+  {
+    "package": "leaflet",
+    "version": "1.9.4",
+    "source": "https://registry.npmjs.org/leaflet/-/leaflet-1.9.4.tgz"
+  }
+]

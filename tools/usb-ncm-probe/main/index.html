@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>USB 连接测试 · Waypin Box</title>
+  <style>
+    :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#263246;background:#f4f6f8;font-synthesis:none}
+    *{box-sizing:border-box}body{margin:0;padding:40px 20px}main{max-width:540px;margin:auto}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+    .brand{font-size:16px;font-weight:650;letter-spacing:.02em}.version{font-size:12px;color:#6c788b}h1{font-size:25px;line-height:1.3;font-weight:650;letter-spacing:-.03em;margin:0 0 12px}
+    .state{display:flex;align-items:center;gap:8px;margin:0;font-size:14px}.dot{width:7px;height:7px;border-radius:50%;background:#8491a3}.ok .dot{background:#198060}.error .dot{background:#b15a39}
+    section{background:white;border:1px solid #e0e5eb;border-radius:12px;padding:22px;margin:20px 0}dl{margin:22px 0 0}dl>div{display:flex;justify-content:space-between;gap:20px;padding:11px 0;border-top:1px solid #edf0f3;font-size:13px}dt{color:#758094}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+    p{color:#6c788b;font-size:13px;line-height:1.8;margin:0}.note{padding:0 2px}button{display:block;appearance:none;width:100%;border:1px solid #d6dfe8;border-radius:8px;background:#fff;color:#33465c;font:inherit;font-size:14px;padding:12px;margin-top:18px;cursor:pointer}button:focus-visible{outline:3px solid #94b7de;outline-offset:3px}button:disabled{opacity:.6;cursor:wait}
+    footer{font-size:12px;color:#8893a3;padding:8px 2px}.details{font-size:12px;color:#8893a3;margin-top:10px}
+  </style>
+</head>
+<body>
+  <main>
+    <header><span class="brand">Waypin Box</span><span class="version">USB 原型 0.1.0</span></header>
+    <section>
+      <h1>USB 连接测试</h1>
+      <p class="state" id="state" role="status"><span class="dot" aria-hidden="true"></span><span id="message">正在检测连接…</span></p>
+      <dl>
+        <div><dt>盒子地址</dt><dd id="address">192.168.72.1</dd></div>
+        <div><dt>当前设备</dt><dd id="client">—</dd></div>
+        <div><dt>运行时间</dt><dd id="uptime">—</dd></div>
+        <div><dt>接收 / 发送</dt><dd id="packets">—</dd></div>
+        <div><dt>丢包计数</dt><dd id="drops">—</dd></div>
+        <div><dt>可用内部内存</dt><dd id="memory">—</dd></div>
+        <div><dt>连接 / 唤醒次数</dt><dd id="events">—</dd></div>
+      </dl>
+      <button id="refresh" type="button">重新检测</button>
+    </section>
+    <p class="note">此原型只测试 USB 网络。能打开此页，说明有线网页连接已建立；定位服务尚未接入。</p>
+    <p class="details">盒子不提供互联网网关或 DNS。可另开网页检查手机的正常上网是否保留。</p>
+    <footer>每 3 秒更新 · 拔线后会显示连接中断</footer>
+  </main>
+  <script>
+    const byId = id => document.getElementById(id);
+    let busy = false;
+    async function update() {
+      if (busy) return;
+      busy = true;
+      byId('refresh').disabled = true;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch('/api/status', {cache:'no-store', signal:controller.signal});
+        if (!response.ok) throw new Error('status');
+        const status = await response.json();
+        byId('state').className = 'state ok';
+        byId('message').textContent = status.suspended ? 'USB 已连接，当前处于挂起状态' : 'USB 网络已连接';
+        byId('address').textContent = status.address;
+        byId('client').textContent = status.client || '—';
+        byId('uptime').textContent = `${Math.floor(status.uptime_s / 60)} 分 ${status.uptime_s % 60} 秒`;
+        byId('packets').textContent = `${status.rx_packets} / ${status.tx_packets} 包`;
+        byId('drops').textContent = `${status.rx_dropped} / ${status.tx_dropped}`;
+        byId('memory').textContent = `${Math.round(status.internal_heap / 1024)} KB`;
+        byId('events').textContent = `${status.mounts} / ${status.resumes}`;
+      } catch {
+        byId('state').className = 'state error';
+        byId('message').textContent = '连接中断，请检查 USB 数据线';
+      } finally {
+        clearTimeout(timer);
+        busy = false;
+        byId('refresh').disabled = false;
+      }
+    }
+    byId('refresh').addEventListener('click', update);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) update(); });
+    setInterval(() => { if (!document.hidden) update(); }, 3000);
+    update();
+  </script>
+</body>
+</html>
