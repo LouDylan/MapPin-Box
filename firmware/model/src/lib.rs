@@ -9,6 +9,7 @@ pub use maps::{MapChange, MapConfig, MapCredentials, MapProvider, MapRegion};
 use std::net::{IpAddr, Ipv4Addr};
 
 pub const HOTSPOT_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 71, 1);
+pub const CONTROL_HOST: &str = "mappin.local";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ControlLink {
@@ -27,6 +28,19 @@ pub fn control_link(
     }
     (local == IpAddr::V4(HOTSPOT_IP) && peer != local && control_client(peer))
         .then_some(ControlLink::Wifi)
+}
+
+pub fn control_origin(local: IpAddr, host: &str, origin: Option<&str>) -> bool {
+    let host = host.strip_suffix(":80").unwrap_or(host);
+    let domain = host.strip_suffix('.').unwrap_or(host);
+    if !domain.eq_ignore_ascii_case(CONTROL_HOST) && host != local.to_string() {
+        return false;
+    }
+    origin.is_none_or(|origin| {
+        origin
+            .strip_prefix("http://")
+            .is_some_and(|origin_host| origin_host.eq_ignore_ascii_case(host))
+    })
 }
 
 /// Keep control on the accessory AP when the upstream station is enabled.
@@ -439,6 +453,35 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn control_origin_accepts_the_local_name_and_the_receiving_address() {
+        for local in [HOTSPOT_IP, Ipv4Addr::new(172, 20, 10, 3)] {
+            let address = IpAddr::V4(local);
+            let host = local.to_string();
+            assert!(control_origin(address, &host, None));
+            assert!(control_origin(
+                address,
+                &format!("{host}:80"),
+                Some(&format!("http://{host}"))
+            ));
+            assert!(control_origin(
+                address,
+                "MAPPIN.LOCAL:80",
+                Some("http://mappin.local")
+            ));
+            assert!(!control_origin(
+                address,
+                "mappin.local",
+                Some(&format!("http://{host}"))
+            ));
+            assert!(!control_origin(
+                address,
+                "external.example",
+                Some("http://external.example")
+            ));
+        }
     }
 
     #[test]

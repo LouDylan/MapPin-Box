@@ -3,15 +3,15 @@ use crate::{
     bluetooth::{self, Endpoint},
     iphone::{PhoneInfo, SavedPairing},
     iphone_session::spawn_worker,
-    sdk,
+    sdk::{self, EspError},
 };
-use esp_idf_svc::mdns::EspMdns;
 use idevice::remote_pairing::{PairableHost, PairableHostInfo, RpPairingFile, RpPairingSocket};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
     error::Error,
-    net::IpAddr,
+    ffi::CString,
+    net::{IpAddr, Ipv4Addr},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -112,6 +112,59 @@ pub fn commit_pending(app: &App) {
     }
 }
 
+struct Advertisement(CString);
+
+impl Advertisement {
+    fn start(id: &str, info: &PairableHostInfo, ip: Ipv4Addr, port: u16) -> Result<Self> {
+        let hostname = CString::new(format!("mappin-bt-{}", &id[..8]))?;
+        let instance = CString::new(id)?;
+        let txt = info
+            .mdns_txt_records(id)
+            .into_iter()
+            .map(|(key, value)| Ok((CString::new(key)?, CString::new(value)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let mut entries = txt
+            .iter()
+            .map(|(key, value)| sdk::mdns_txt_item_t {
+                key: key.as_ptr(),
+                value: value.as_ptr(),
+            })
+            .collect::<Vec<_>>();
+        let mut address = sdk::mdns_ip_addr_t::default();
+        address.addr.type_ = sdk::ESP_IPADDR_TYPE_V4 as u8;
+        address.addr.u_addr.ip4 = sdk::esp_ip4_addr_t {
+            addr: u32::from_ne_bytes(ip.octets()),
+        };
+
+        // Keep the pairing target unique without renaming the web endpoint.
+        EspError::convert(unsafe { sdk::mdns_delegate_hostname_add(hostname.as_ptr(), &address) })?;
+        let advertisement = Self(hostname);
+        EspError::convert(unsafe {
+            sdk::mdns_service_add_for_host(
+                instance.as_ptr(),
+                c"_remotepairing-pairable-host".as_ptr(),
+                c"_tcp".as_ptr(),
+                advertisement.0.as_ptr(),
+                port,
+                entries.as_mut_ptr(),
+                entries.len(),
+            )
+        })?;
+        Ok(advertisement)
+    }
+}
+
+impl Drop for Advertisement {
+    fn drop(&mut self) {
+        // Removing the hostname also removes its service and sends a goodbye.
+        if let Err(error) =
+            EspError::convert(unsafe { sdk::mdns_delegate_hostname_remove(self.0.as_ptr()) })
+        {
+            log::warn!("MAPPIN_BT_PAIR_ADVERTISEMENT_REMOVE_FAILED: {error}");
+        }
+    }
+}
+
 async fn accept(endpoint: Endpoint) -> Result<SavedPairing> {
     let listener = TcpListener::bind((endpoint.local, 0)).await?;
     let seed = format!("{:08x}{:08x}", unsafe { sdk::esp_random() }, unsafe {
@@ -123,15 +176,7 @@ async fn accept(endpoint: Endpoint) -> Result<SavedPairing> {
     let name = format!("MapPin-Box {}", &id[..4]);
     let info = PairableHostInfo::generate(&name, "Mac17,7");
     let port = listener.local_addr()?.port();
-    let mut mdns = EspMdns::take()?;
-    bluetooth::enable_mdns()?;
-    mdns.set_hostname(format!("mappin-bt-{}", &id[..8]))?;
-    let txt = info.mdns_txt_records(id);
-    let txt = txt
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect::<Vec<_>>();
-    mdns.add_service(Some(id), "_remotepairing-pairable-host", "_tcp", port, &txt)?;
+    let _advertisement = Advertisement::start(id, &info, endpoint.local, port)?;
     ATTEMPT.lock().map_err(|_| "配对状态暂不可用")?.stage = Stage::Waiting { name: name.clone() };
     log::info!("MAPPIN_BT_PAIR_WAITING port={port} name={name}");
 

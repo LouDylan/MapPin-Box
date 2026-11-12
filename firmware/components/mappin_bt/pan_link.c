@@ -127,7 +127,6 @@ void pan_link_up(uint16_t handle)
     atomic_store(&active_handle, handle);
     esp_netif_action_start(netif, NULL, 0, NULL);
     esp_netif_action_connected(netif, NULL, 0, NULL);
-    esp_netif_create_ip6_linklocal(netif);
 }
 
 void pan_link_down(uint16_t handle)

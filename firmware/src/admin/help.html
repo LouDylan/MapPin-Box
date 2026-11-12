@@ -27,7 +27,7 @@
 <div id="bluetooth-setup" hidden>
   <p class="section-hint" id="bt-status" role="status"></p>
   <div id="bt-classic" hidden>
-    <p class="section-hint">打开 iPhone 的蜂窝数据、蓝牙和「个人热点 → 允许其他人加入」。扫描时让 iPhone 停在「设置 → 蓝牙」；也可以用另一台设备打开此页。</p>
+    <p class="section-hint">打开 iPhone 的个人热点，停在「设置 → 蓝牙」。盒子未连接时长按 BOOT 3 秒，收到配对请求后在手机上确认。</p>
     <div class="form-actions"><button id="bt-scan" type="button" class="secondary"><span data-lucide="search" aria-hidden="true"></span>扫描蓝牙设备</button></div>
     <div id="bt-devices" class="network-list" aria-live="polite"></div>
     <div id="bt-confirm" class="inline-confirm" hidden>
@@ -44,7 +44,7 @@
 </div>
 <details id="mac-setup" open>
 <summary>通过 Mac 接入或准备定位服务</summary>
-<ol class="setup-steps"><li><strong>连接 Mac</strong><p>用数据线将 iPhone 和盒子接到 Mac，解锁 iPhone。</p></li><li><strong>运行接入助手</strong><p>在 Mac 双击 <code>接入新iPhone.command</code>，按提示信任电脑、开启开发者模式，并导入配对资料。</p></li><li><strong>连接盒子热点</strong><p>完成后，iPhone 加入 <strong id="help-ssid">盒子热点</strong>，使用热点密码，在 Safari 打开 <a href="/">192.168.71.1</a>。</p></li></ol>
+<ol class="setup-steps"><li><strong>连接 Mac</strong><p>用数据线将 iPhone 和盒子接到 Mac，解锁 iPhone。</p></li><li><strong>运行接入助手</strong><p>在 Mac 双击 <code>接入新iPhone.command</code>，按提示信任电脑、开启开发者模式，并导入配对资料。</p></li><li><strong>连接盒子热点</strong><p>完成后，iPhone 加入 <strong id="help-ssid">盒子热点</strong>，在 Safari 打开 <a href="http://mappin.local/">mappin.local</a>。</p></li></ol>
 <dl class="setup-recovery"><dt>手机重启或升级后无法使用</dt><dd>把 iPhone 接回 Mac，运行 <code>准备iPhone定位服务.command</code>。</dd></dl>
 </details>
 <p id="help-replace" class="section-hint" hidden>更换手机前先恢复旧手机真实定位。收藏、地图和 Wi-Fi 设置会保留。</p>

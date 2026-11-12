@@ -117,7 +117,7 @@ async def run(args):
         return
     await asyncio.to_thread(provision, port, payload)
     save_selected(udid)
-    print('接入完成。拔掉 iPhone 数据线，加入盒子的 Wi-Fi 热点，打开 http://192.168.71.1。\n日常可独立供电使用；手机重启或系统更新后若服务不可用，重新运行“准备iPhone定位服务.command”。')
+    print('接入完成。拔掉 iPhone 数据线，加入盒子热点，打开 http://mappin.local/（备用地址 http://192.168.71.1/）。\n日常可独立供电使用。手机重启或系统更新后若服务不可用，重新运行“准备iPhone定位服务.command”。')
 
 def main():
     os.umask(0o077)

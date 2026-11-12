@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use std::{error::Error, net::Ipv4Addr};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-pub const PASSWORD: &str = "mappin-setup";
+const DEFAULT_PASSWORD: &str = "88888888";
 const CHANNEL: u8 = 6;
 
 pub struct WifiAccessPoint {
@@ -58,7 +58,7 @@ impl WifiAccessPoint {
             Some(bytes) => serde_json::from_slice::<HotspotConfig>(bytes)?.validate()?,
             None => HotspotConfig {
                 ssid: format!("MapPin-{:02X}{:02X}", mac[4], mac[5]),
-                password: PASSWORD.into(),
+                password: DEFAULT_PASSWORD.into(),
             },
         };
         let ap_configuration = AccessPointConfiguration {

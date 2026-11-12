@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,8 +23,12 @@
 #error "Bluetooth PAN needs a free mDNS interface slot"
 #endif
 
+/* The pinned Bluedroid SDK has no public classic GAP call for bonding without PAN. */
+extern void BTA_DmBond(esp_bd_addr_t address);
+extern void BTA_DmBondCancel(esp_bd_addr_t address);
+
 enum phase { STARTING, IDLE, SCANNING, CONNECTING, CONFIRMING, LINK, FAILED };
-enum action { SCAN, CONNECT, CONFIRM, READY, SCAN_DONE, COMPARE, OPEN, CLOSE };
+enum action { SCAN, CONNECT, CONFIRM, READY, SCAN_DONE, COMPARE, AUTH, OPEN, CLOSE, BUTTON_SCAN };
 
 #define MAX_PEERS 8
 #define NAME_SIZE 65
@@ -50,12 +55,13 @@ static struct peer peers[MAX_PEERS];
 static unsigned peer_count;
 static enum phase phase;
 static uint32_t pin;
+static bool button_pairing;
 
 /* The connection task owns the target and reconnect policy. */
 static esp_bd_addr_t target;
 static esp_bd_addr_t preferred;
 static bool have_preferred;
-static bool manual;
+static bool bonding;
 static uint16_t handle = ESP_PAN_INVALID_HANDLE;
 static TickType_t retry_at, connect_until;
 
@@ -64,6 +70,10 @@ static void publish(enum phase next, uint32_t code)
     portENTER_CRITICAL(&view_lock);
     phase = next;
     pin = code;
+    if (button_pairing && (next == IDLE || next == LINK || next == FAILED)) {
+        button_pairing = false;
+        peer_count = 0;
+    }
     portEXIT_CRITICAL(&view_lock);
 }
 
@@ -77,32 +87,35 @@ static void found(const esp_bt_gap_cb_param_t *data)
 {
     const uint8_t *name = NULL;
     uint8_t len = 0;
+    uint32_t cod = 0;
     for (int i = 0; i < data->disc_res.num_prop; i++) {
         const esp_bt_gap_dev_prop_t *prop = &data->disc_res.prop[i];
-        if (prop->type == ESP_BT_GAP_DEV_PROP_BDNAME && prop->len > 0) {
+        if (prop->type == ESP_BT_GAP_DEV_PROP_COD && prop->len == (int)sizeof(cod)) {
+            memcpy(&cod, prop->val, sizeof(cod));
+        } else if (prop->type == ESP_BT_GAP_DEV_PROP_BDNAME && prop->len > 0) {
             name = prop->val;
             len = prop->len < NAME_SIZE ? prop->len : NAME_SIZE - 1;
-            break;
-        }
-        if (prop->type == ESP_BT_GAP_DEV_PROP_EIR) {
+        } else if (prop->type == ESP_BT_GAP_DEV_PROP_EIR && !name) {
             name = esp_bt_gap_resolve_eir_data(prop->val, ESP_BT_EIR_TYPE_CMPL_LOCAL_NAME, &len);
             if (!name)
                 name = esp_bt_gap_resolve_eir_data(prop->val, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &len);
         }
     }
-    if (!name || !len)
-        return;
     if (len >= NAME_SIZE)
         len = NAME_SIZE - 1;
+    bool phone = esp_bt_gap_get_cod_major_dev(cod) == ESP_BT_COD_MAJOR_DEV_PHONE;
 
     portENTER_CRITICAL(&view_lock);
-    if (phase == SCANNING) {
+    if (phase == SCANNING && (button_pairing ? phone : name && len)) {
         unsigned i = 0;
         while (i < peer_count && memcmp(peers[i].address, data->disc_res.bda, ESP_BD_ADDR_LEN))
             i++;
         if (i < MAX_PEERS) {
             memcpy(peers[i].address, data->disc_res.bda, ESP_BD_ADDR_LEN);
-            memcpy(peers[i].name, name, len);
+            if (name && len)
+                memcpy(peers[i].name, name, len);
+            else
+                len = 0;
             peers[i].name[len] = '\0';
             if (i == peer_count)
                 peer_count++;
@@ -124,6 +137,12 @@ static void gap_event(esp_bt_gap_cb_event_t type, esp_bt_gap_cb_param_t *data)
     case ESP_BT_GAP_CFM_REQ_EVT: {
         struct event event = { .action = COMPARE, .value = data->cfm_req.num_val };
         memcpy(event.address, data->cfm_req.bda, ESP_BD_ADDR_LEN);
+        post(event);
+        break;
+    }
+    case ESP_BT_GAP_AUTH_CMPL_EVT: {
+        struct event event = { .action = AUTH, .value = data->auth_cmpl.stat };
+        memcpy(event.address, data->auth_cmpl.bda, ESP_BD_ADDR_LEN);
         post(event);
         break;
     }
@@ -204,14 +223,14 @@ static void retry_after(unsigned ms)
 
 static void failed(void)
 {
+    retry_after(bonding ? 30000 : RETRY_MS);
+    bonding = false;
     publish(FAILED, 0);
-    retry_after(manual ? 30000 : RETRY_MS);
     ESP_LOGW(TAG, "MAPPIN_BT_LINK_FAILED");
 }
 
-static void connect(bool requested)
+static void connect(void)
 {
-    manual = requested;
     ESP_LOGI(TAG, "Bluetooth connect internal RAM: %u free, %u largest",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
@@ -222,6 +241,44 @@ static void connect(bool requested)
     publish(CONNECTING, 0);
     connect_until = xTaskGetTickCount() + pdMS_TO_TICKS(CONNECT_MS);
     ESP_LOGI(TAG, "MAPPIN_BT_CONNECTING");
+}
+
+static void bond(void)
+{
+    bonding = true;
+    publish(CONNECTING, 0);
+    connect_until = xTaskGetTickCount() + pdMS_TO_TICKS(CONNECT_MS);
+    BTA_DmBond(target);
+    ESP_LOGI(TAG, "MAPPIN_BT_BONDING");
+}
+
+static void on_auth(const struct event *event)
+{
+    if (!bonding || memcmp(target, event->address, sizeof(target)))
+        return;
+    if (event->value != ESP_BT_STATUS_SUCCESS) {
+        ESP_LOGW(TAG, "MAPPIN_BT_BOND_FAILED status=%" PRIu32, event->value);
+        failed();
+        return;
+    }
+    bonding = false;
+    save_preferred();
+    publish(IDLE, 0);
+    retry_after(1000);
+    ESP_LOGI(TAG, "MAPPIN_BT_BONDED");
+}
+
+static void confirm_bond(void)
+{
+    esp_err_t err = esp_bt_gap_ssp_confirm_reply(target, true);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "MAPPIN_BT_CONFIRM_FAILED %s", esp_err_to_name(err));
+        BTA_DmBondCancel(target);
+        failed();
+        return;
+    }
+    publish(CONNECTING, 0);
+    ESP_LOGI(TAG, "MAPPIN_BT_CONFIRM_SENT");
 }
 
 static void reconnect(void)
@@ -245,12 +302,50 @@ static void reconnect(void)
     }
     free(list);
     if (known)
-        connect(false);
+        connect();
+}
+
+static void scan(bool button)
+{
+    if (phase != IDLE && phase != FAILED)
+        return;
+    portENTER_CRITICAL(&view_lock);
+    peer_count = 0;
+    button_pairing = button;
+    portEXIT_CRITICAL(&view_lock);
+    publish(SCANNING, 0);
+    if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 6, 0) != ESP_OK)
+        failed();
+    else if (button)
+        ESP_LOGI(TAG, "MAPPIN_BT_BUTTON_SCAN");
+}
+
+static void pair_scanned_phone(void)
+{
+    portENTER_CRITICAL(&view_lock);
+    unsigned count = peer_count;
+    int selected = count == 1 ? 0 : -1;
+    for (unsigned i = 0; have_preferred && i < count; i++) {
+        if (!memcmp(peers[i].address, preferred, sizeof(preferred))) {
+            selected = i;
+            break;
+        }
+    }
+    if (selected >= 0)
+        memcpy(target, peers[selected].address, sizeof(target));
+    portEXIT_CRITICAL(&view_lock);
+
+    if (selected >= 0)
+        bond();
+    else {
+        ESP_LOGW(TAG, "MAPPIN_BT_BUTTON_SCAN_FOUND %u phones", count);
+        failed();
+    }
 }
 
 static void on_open(const struct event *event)
 {
-    bool expected = (phase == CONNECTING || phase == CONFIRMING) &&
+    bool expected = !bonding && phase == CONNECTING &&
                     !memcmp(event->address, target, sizeof(target));
     if (!expected) {
         if (event->value == ESP_PAN_SUCCESS)
@@ -281,17 +376,15 @@ static void on_event(const struct event *event)
         reconnect();
         break;
     case SCAN:
-        if (phase != IDLE && phase != FAILED)
-            return;
-        portENTER_CRITICAL(&view_lock);
-        peer_count = 0;
-        portEXIT_CRITICAL(&view_lock);
-        publish(SCANNING, 0);
-        if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 6, 0) != ESP_OK)
-            failed();
+        scan(false);
+        break;
+    case BUTTON_SCAN:
+        scan(true);
         break;
     case SCAN_DONE:
-        if (phase == SCANNING) {
+        if (phase == SCANNING && button_pairing)
+            pair_scanned_phone();
+        else if (phase == SCANNING) {
             publish(IDLE, 0);
             retry_after(90000);
         }
@@ -299,25 +392,31 @@ static void on_event(const struct event *event)
     case CONNECT:
         if (phase == IDLE || phase == FAILED) {
             memcpy(target, event->address, sizeof(target));
-            connect(true);
+            bond();
         }
         break;
     case COMPARE:
-        if (manual && phase == CONNECTING && !memcmp(target, event->address, sizeof(target)))
-            publish(CONFIRMING, event->value);
-        else
+        if (!bonding || phase != CONNECTING || memcmp(target, event->address, sizeof(target))) {
             esp_bt_gap_ssp_confirm_reply((uint8_t *)event->address, false);
+        } else if (button_pairing) {
+            confirm_bond();
+        } else {
+            publish(CONFIRMING, event->value);
+        }
         break;
     case CONFIRM:
-        if (phase == CONFIRMING && pin == event->value &&
-            esp_bt_gap_ssp_confirm_reply(target, true) == ESP_OK)
-            publish(CONNECTING, 0);
+        if (phase == CONFIRMING && pin == event->value)
+            confirm_bond();
+        break;
+    case AUTH:
+        on_auth(event);
         break;
     case OPEN:
         on_open(event);
         break;
     case CLOSE:
         if (phase == LINK && handle == event->handle) {
+            mdns_netif_action(pan, MDNS_EVENT_DISABLE_IP4);
             pan_link_down(handle);
             handle = ESP_PAN_INVALID_HANDLE;
             publish(IDLE, 0);
@@ -341,6 +440,8 @@ static void connection_task(void *ctx)
         if ((phase == CONNECTING || phase == CONFIRMING) && (int32_t)(now - connect_until) >= 0) {
             if (phase == CONFIRMING)
                 esp_bt_gap_ssp_confirm_reply(target, false);
+            if (bonding)
+                BTA_DmBondCancel(target);
             failed();
         }
     }
@@ -349,8 +450,16 @@ static void connection_task(void *ctx)
 static void got_ip(void *ctx, esp_event_base_t base, int32_t id, void *data)
 {
     const ip_event_got_ip_t *event = data;
-    if (event->esp_netif == pan)
-        ESP_LOGI(TAG, "MAPPIN_BT_IP http://" IPSTR "/", IP2STR(&event->ip_info.ip));
+    if (event->esp_netif != pan || !esp_netif_is_netif_up(pan))
+        return;
+    ESP_LOGI(TAG, "MAPPIN_BT_IP http://" IPSTR "/", IP2STR(&event->ip_info.ip));
+
+    esp_err_t err = mdns_register_netif(pan);
+    /* A renewed lease can arrive while the interface is still registered. */
+    if (err == ESP_OK || err == ESP_ERR_INVALID_STATE)
+        err = mdns_netif_action(pan, MDNS_EVENT_ENABLE_IP4);
+    if (err != ESP_OK)
+        ESP_LOGW(TAG, "Bluetooth mDNS unavailable: %s", esp_err_to_name(err));
 }
 
 esp_err_t mappin_bt_start(void)
@@ -395,11 +504,12 @@ bool mappin_bt_endpoint(uint32_t *local, uint32_t *peer)
     return true;
 }
 
-uint32_t mappin_bt_state(uint32_t *code)
+uint32_t mappin_bt_state(uint32_t *code, bool *button)
 {
     portENTER_CRITICAL(&view_lock);
     uint32_t current = phase;
     *code = pin;
+    *button = button_pairing;
     portEXIT_CRITICAL(&view_lock);
     return current;
 }
@@ -426,7 +536,7 @@ esp_err_t mappin_bt_action(uint32_t action, uint32_t value)
         if (valid)
             memcpy(event.address, peers[value].address, ESP_BD_ADDR_LEN);
     } else if (action == CONFIRM) {
-        valid = phase == CONFIRMING && pin == value;
+        valid = phase == CONFIRMING && !button_pairing && pin == value;
     }
     portEXIT_CRITICAL(&view_lock);
     if (!valid)
@@ -434,16 +544,13 @@ esp_err_t mappin_bt_action(uint32_t action, uint32_t value)
     return xQueueSend(events, &event, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
-esp_err_t mappin_bt_mdns(void)
+bool mappin_bt_button(void)
 {
-    if (!pan)
-        return ESP_ERR_INVALID_STATE;
-    const char *const wifi[] = { "WIFI_AP_DEF", "WIFI_STA_DEF" };
-    for (size_t i = 0; i < sizeof(wifi) / sizeof(*wifi); i++) {
-        esp_netif_t *netif = esp_netif_get_handle_from_ifkey(wifi[i]);
-        if (netif)
-            mdns_netif_action(netif, MDNS_EVENT_DISABLE_IP4 | MDNS_EVENT_DISABLE_IP6);
-    }
-    ESP_RETURN_ON_ERROR(mdns_register_netif(pan), TAG, "register PAN mDNS");
-    return mdns_netif_action(pan, MDNS_EVENT_ENABLE_IP4);
+    if (!events)
+        return false;
+    struct event event = { .action = BUTTON_SCAN };
+    portENTER_CRITICAL(&view_lock);
+    bool valid = phase == IDLE || phase == FAILED;
+    portEXIT_CRITICAL(&view_lock);
+    return valid && xQueueSend(events, &event, 0) == pdTRUE;
 }

@@ -31,6 +31,7 @@ use esp_idf_svc::{
         uart::{UartDriver, config::Config},
     },
     io::vfs::MountedEventfs,
+    mdns::EspMdns,
     nvs::EspDefaultNvsPartition,
 };
 use status_led::StatusLed;
@@ -39,7 +40,9 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-use mappin_box_model::{backup::BackupExport, button::Button, indicator::Pattern};
+use mappin_box_model::{CONTROL_HOST, backup::BackupExport, button::Button, indicator::Pattern};
+#[cfg(esp32)]
+use mappin_box_model::button::Action;
 
 fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
     esp_idf_svc::sys::link_patches();
@@ -84,6 +87,14 @@ fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
     let wifi = wifi_access::WifiAccessPoint::start(peripherals.modem, partition)?;
     let label = wifi.display_label();
     let address = wifi.address();
+    let _mdns = EspMdns::take()
+        .and_then(|mut mdns| {
+            mdns.set_hostname(CONTROL_HOST.trim_end_matches(".local"))?;
+            log::info!("MAPPIN_LOCAL_URL http://{CONTROL_HOST}/");
+            Ok(mdns)
+        })
+        .inspect_err(|error| log::warn!("MAPPIN_MDNS_UNAVAILABLE: {error}"))
+        .ok();
     let network = wifi_control::WifiControl::start(wifi, app.clone())?;
     let backup = Arc::new(Mutex::new(BackupExport::default()));
     let _server = portal::start(app.clone(), network.clone(), backup.clone())?;
@@ -116,12 +127,25 @@ fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
             })
             .unwrap_or((action, None));
         if let Some(action) = action {
-            app.button_action(action);
+            #[cfg(esp32)]
+            let handled = action == Action::Replay
+                && network.has_hotspot_client() == Some(false)
+                && bluetooth::endpoint().is_none()
+                && app.can_change_phone().is_ok()
+                && bluetooth::button();
+            #[cfg(not(esp32))]
+            let handled = false;
+            if !handled {
+                app.button_action(action);
+            }
         }
         if led.is_some()
-            && let Some(connected) = network.has_hotspot_client()
-            && let Some((pattern, since)) =
-                app.led_pattern(connected || bluetooth::endpoint().is_some(), export, now)
+            && let Some((pattern, since)) = bluetooth::button_pattern()
+                .map(|pattern| (pattern, None))
+                .or_else(|| {
+                    let connected = network.has_hotspot_client()? || bluetooth::endpoint().is_some();
+                    app.led_pattern(connected, export, now)
+                })
         {
             StatusLed::show(led, pattern, since, now);
         }

@@ -1,3 +1,4 @@
+use mappin_box_model::indicator::Pattern;
 use std::net::Ipv4Addr;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -11,9 +12,14 @@ pub fn endpoint() -> Option<Endpoint> {
     None
 }
 
+#[cfg(not(esp32))]
+pub fn button_pattern() -> Option<Pattern> {
+    None
+}
+
 #[cfg(esp32)]
 mod classic {
-    use super::{Endpoint, Ipv4Addr};
+    use super::{Endpoint, Ipv4Addr, Pattern};
     use crate::sdk::{self, EspError};
     use serde::Deserialize;
     use serde_json::{Value, json};
@@ -28,10 +34,10 @@ mod classic {
     unsafe extern "C" {
         fn mappin_bt_start() -> sdk::esp_err_t;
         fn mappin_bt_endpoint(local: *mut u32, peer: *mut u32) -> bool;
-        fn mappin_bt_state(code: *mut u32) -> u32;
+        fn mappin_bt_state(code: *mut u32, button: *mut bool) -> u32;
         fn mappin_bt_candidate(index: u32, name: *mut c_char) -> bool;
         fn mappin_bt_action(action: u32, value: u32) -> sdk::esp_err_t;
-        fn mappin_bt_mdns() -> sdk::esp_err_t;
+        fn mappin_bt_button() -> bool;
     }
 
     pub fn start() {
@@ -56,8 +62,14 @@ mod classic {
         endpoint().map(|endpoint| endpoint.peer.into())
     }
 
-    pub fn enable_mdns() -> Result<(), EspError> {
-        EspError::convert(unsafe { mappin_bt_mdns() })
+    pub fn button() -> bool {
+        STARTED.load(Ordering::Acquire) && unsafe { mappin_bt_button() }
+    }
+
+    pub fn button_pattern() -> Option<Pattern> {
+        let (mut code, mut button) = (0, false);
+        unsafe { mappin_bt_state(&mut code, &mut button) };
+        button.then_some(Pattern::BluetoothPairing)
     }
 
     #[derive(Deserialize)]
@@ -87,17 +99,18 @@ mod classic {
         if !STARTED.load(Ordering::Acquire) {
             return json!({"state": "unavailable"});
         }
-        let mut code = 0;
-        let phase = unsafe { mappin_bt_state(&mut code) };
+        let (mut code, mut button) = (0, false);
+        let phase = unsafe { mappin_bt_state(&mut code, &mut button) };
         let address = endpoint().map(|endpoint| endpoint.local);
-        let state = match phase {
-            0 => "starting",
-            1 => "idle",
-            2 => "scanning",
-            3 => "connecting",
-            4 => "confirming",
-            5 if address.is_some() => "connected",
-            5 => "connecting",
+        let state = match (phase, button) {
+            (_, true) => "button_pairing",
+            (0, false) => "starting",
+            (1, false) => "idle",
+            (2, false) => "scanning",
+            (3, false) => "connecting",
+            (4, false) => "confirming",
+            (5, false) if address.is_some() => "connected",
+            (5, false) => "connecting",
             _ => "failed",
         };
         let mut devices = Vec::new();
@@ -113,7 +126,7 @@ mod classic {
             }
         }
         json!({"state": state, "address": address, "devices": devices,
-               "code": (phase == 4).then(|| format!("{code:06}"))})
+               "code": (phase == 4 && !button).then(|| format!("{code:06}"))})
     }
 }
 

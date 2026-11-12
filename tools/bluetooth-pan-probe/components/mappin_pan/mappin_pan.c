@@ -355,6 +355,7 @@ static void handle_event(struct event *event)
         handle = event->handle;
         phase = CONNECTED;
         pan_link_up(handle);
+        esp_netif_create_ip6_linklocal(pan);
         ESP_LOGI(TAG, "MAPPIN_BT_LINK_UP");
         break;
     case PAN_CLOSE:

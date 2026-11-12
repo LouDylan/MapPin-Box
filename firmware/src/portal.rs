@@ -23,7 +23,7 @@ use std::{
 use mappin_box_model::{
     Backup, ControlLink, HotspotChange, MapChange, Place, WifiCredentials,
     backup::{BackupExport, EXPORT_WINDOW},
-    control_link,
+    control_link, control_origin,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -90,14 +90,9 @@ fn client_address(request: &mut Request<&mut EspHttpConnection<'_>>) -> Result<I
 
 fn sensitive_client(request: &mut Request<&mut EspHttpConnection<'_>>) -> Result<Client> {
     let client = client(request)?;
-    let host = client.local.to_string();
-    let host_port = format!("{host}:80");
     if !request
         .header("Host")
-        .is_some_and(|value| value == host || value == host_port)
-        || request
-            .header("Origin")
-            .is_some_and(|value| value != format!("http://{host}"))
+        .is_some_and(|host| control_origin(client.local, host, request.header("Origin")))
     {
         return Err(ControlAccessDenied.into());
     }

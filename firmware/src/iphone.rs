@@ -5,7 +5,6 @@ use std::{
 
 use enigma_embedded_bridge_protocol::{MAX_PAIRING_RECORD_BYTES, decode_pairing_bundle};
 use esp_idf_svc::{
-    mdns::EspMdns,
     nvs::{EspKeyValueStorage, EspNvs, NvsCustom},
     sys::{self, EspError},
 };
@@ -162,12 +161,6 @@ impl IphoneController {
 }
 
 fn discover_remote_pairing_port(address: std::net::IpAddr) -> Result<u16, String> {
-    let _mdns = EspMdns::take().map_err(|error| stage_error("start mDNS discovery", error))?;
-    #[cfg(esp32)]
-    if crate::bluetooth::peer() == Some(address) {
-        crate::bluetooth::enable_mdns()
-            .map_err(|error| stage_error("enable Bluetooth mDNS discovery", error))?;
-    }
     let mut results = core::ptr::null_mut();
     let result = unsafe {
         sys::mdns_query_ptr(

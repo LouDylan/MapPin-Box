@@ -38,7 +38,7 @@ function message(id, value, error = false) {
 function schedule() {
   clearTimeout(timer);
   const busy = data?.wifi.operation || data?.app.operation || data?.app.pairing_busy ||
-    (page === 'help' && ['scanning', 'connecting', 'confirming'].includes(data?.bluetooth?.state));
+    (page === 'help' && ['scanning', 'connecting', 'confirming', 'button_pairing'].includes(data?.bluetooth?.state));
   if (!document.hidden) timer = setTimeout(() => refresh(), online && busy ? 1000 : online ? 5000 : 3000);
 }
 async function refresh(force = false) {
@@ -199,6 +199,7 @@ function renderBluetooth() {
   const status = {
     starting: '正在启动蓝牙…', scanning: '正在扫描蓝牙设备…',
     connecting: '正在接入 iPhone 的个人热点…', confirming: '请核对蓝牙配对码。',
+    button_pairing: '正在通过 BOOT 配对。',
     connected: '蓝牙已连接。', failed: '蓝牙连接失败，请检查个人热点后重试。',
     unavailable: '蓝牙不可用，请用备用 Wi-Fi。',
   };
