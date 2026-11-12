@@ -1,0 +1,3 @@
+# The original N16R8 board needs QIO to avoid flash errors after PSRAM access.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_SPIRAM_MODE_OCT=y

@@ -3,6 +3,10 @@
 #[allow(dead_code)]
 #[path = "../../../../firmware/src/iphone.rs"]
 mod iphone;
+#[path = "../../../../firmware/src/iphone_session.rs"]
+mod iphone_session;
+
+use esp_idf_svc::sys as sdk;
 #[allow(dead_code)]
 #[path = "../../../../vendor/enigma/apps/embedded/platforms/esp-idf/src/persistent_storage.rs"]
 mod persistent_storage;
@@ -21,7 +25,7 @@ use esp_idf_svc::{
     nvs::{EspCustomNvsPartition, EspKeyValueStorage, EspNvs},
     sys::{self, EspError},
 };
-use waypin_box_model::indicator::Pattern;
+use mappin_box_model::indicator::Pattern;
 use status_led::StatusLed;
 use std::{
     error::Error,
@@ -35,7 +39,7 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const TEST_WINDOW: Duration = Duration::from_secs(180);
 
 unsafe extern "C" {
-    fn waypin_usb_network_start();
+    fn mappin_usb_network_start();
 }
 
 struct Session {
@@ -119,7 +123,7 @@ fn run() -> Result<()> {
     );
     let peripherals = Peripherals::take()?;
     let mut led = StatusLed::new(peripherals.pins.gpio48)
-        .inspect_err(|error| log::warn!("WAYPIN_LED_DISABLED: {error}"))
+        .inspect_err(|error| log::warn!("MAPPIN_LED_DISABLED: {error}"))
         .ok();
     StatusLed::show(&mut led, Pattern::Starting, None, Instant::now());
     // Fail on an invalid partition before the wrapper can apply its erase-and-retry policy.
@@ -135,7 +139,7 @@ fn run() -> Result<()> {
         peer: None,
         restore_at: None,
     }));
-    unsafe { waypin_usb_network_start() };
+    unsafe { mappin_usb_network_start() };
     let mut server = EspHttpServer::new(&Configuration {
         stack_size: 12 * 1024,
         max_open_sockets: 4,
@@ -158,7 +162,7 @@ fn run() -> Result<()> {
         let session = session.clone();
         server.fn_handler(path, Method::Post, move |mut request| -> Result<()> {
             let result = (|| -> Result<()> {
-                if request.header("X-Waypin-Usb-Test") != Some("1") {
+                if request.header("X-MapPin-Usb-Test") != Some("1") {
                     return Err("请使用测试页面的按钮".into());
                 }
                 let peer = usb_peer(&mut request)?;
@@ -187,7 +191,7 @@ fn run() -> Result<()> {
     }
     StatusLed::show(&mut led, Pattern::Ready, None, Instant::now());
     log::info!(
-        "WAYPIN_USB_LOCATION_READY http://{}",
+        "MAPPIN_USB_LOCATION_READY http://{}",
         Ipv4Addr::new(192, 168, 72, 1)
     );
     loop {
@@ -200,6 +204,6 @@ fn run() -> Result<()> {
 
 fn main() {
     if let Err(error) = run() {
-        log::error!("WAYPIN_USB_LOCATION_STARTUP_ERROR: {error}");
+        log::error!("MAPPIN_USB_LOCATION_STARTUP_ERROR: {error}");
     }
 }

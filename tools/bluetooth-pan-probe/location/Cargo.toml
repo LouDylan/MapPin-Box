@@ -1,0 +1,22 @@
+[package]
+name = "mappin-bluetooth-location-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["../components/mappin_pan", "components/mappin_location"]
+
+[profile.release]
+opt-level = "z"
+
+[dependencies]
+enigma-embedded-bridge-protocol = { path = "../../../vendor/enigma/apps/embedded/bridge-protocol" }
+enigma-embedded-core = { path = "../../../vendor/enigma/apps/embedded/core" }
+esp-idf-sys = "0.37.2"
+idevice = { git = "https://github.com/jkcoxson/idevice.git", rev = "63a341d7f624b5c1f2540e4cecb269151a2caf52", default-features = false, features = ["core_device_proxy", "dvt", "location_simulation", "remote_pairing", "rsd", "rustcrypto", "tcp", "tunnel_tcp_stack"] }
+log = "0.4"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "sync", "time"] }
+
+[build-dependencies]
+embuild = "0.33"

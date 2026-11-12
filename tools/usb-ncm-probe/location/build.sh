@@ -15,5 +15,5 @@ cargo +esp build --release --locked
 mkdir -p build-output
 espflash save-image --chip esp32s3 --flash-size 16mb --flash-mode dio --flash-freq 40mhz \
     --partition-table "$repo_dir/firmware/partitions.csv" --target-app-partition factory \
-    --skip-update-check "${CARGO_TARGET_DIR:-target}/xtensa-esp32s3-espidf/release/waypin-usb-location-probe" \
+    --skip-update-check "${CARGO_TARGET_DIR:-target}/xtensa-esp32s3-espidf/release/mappin-usb-location-probe" \
     build-output/app.bin

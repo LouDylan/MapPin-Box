@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Restore a Waypin Box device backup to the matching userdata partition over USB."""
+"""Restore a MapPin-Box device backup to the matching userdata partition over USB."""
 
 import argparse
 import hashlib
@@ -11,11 +11,12 @@ import subprocess
 import sys
 import tempfile
 
-from provision_board import board_port
+from usb_provision import board_port
 
 
 ROOT = Path(__file__).resolve().parent
-MAGIC = b"I4BKUP01"
+MAGIC = b"MAPBKUP1"
+LEGACY_MAGIC = b"I4BKUP01"
 USERDATA_OFFSET = 0x820000
 USERDATA_SIZE = 0x20000
 DIGEST_SIZE = 32
@@ -23,16 +24,19 @@ DIGEST_SIZE = 32
 
 def read_backup(path: Path) -> bytes:
     if path.stat().st_size != len(MAGIC) + USERDATA_SIZE + DIGEST_SIZE:
-        raise ValueError("备份大小不正确，请选择移点盒的完整备份")
+        raise ValueError("备份大小不正确，请选择MapPin-Box的完整备份")
     file = path.read_bytes()
     payload, digest = file[:-DIGEST_SIZE], file[-DIGEST_SIZE:]
-    if not payload.startswith(MAGIC) or hashlib.sha256(payload).digest() != digest:
+    if not payload.startswith((MAGIC, LEGACY_MAGIC)) or hashlib.sha256(payload).digest() != digest:
         raise ValueError("备份格式或校验值不正确")
     return payload[len(MAGIC):]
 
 
 def partition_table() -> Path:
-    table = ROOT / "firmware" / "build-output" / "partition-table.bin"
+    output = ROOT / "firmware" / "build-output"
+    table = output / "partition-table.bin"
+    if not table.is_file():
+        table = output / "wrover-e" / "partition-table.bin"
     if not table.is_file():
         raise ValueError("请先运行“编译开发板固件.command”生成分区表")
     data = table.read_bytes()
@@ -44,11 +48,11 @@ def partition_table() -> Path:
 
 
 def restore(port: str, userdata: bytes, table: Path) -> None:
-    base = [sys.executable, "-m", "esptool", "--chip", "esp32s3", "--port", port,
+    base = [sys.executable, "-m", "esptool", "--port", port,
             "--baud", "115200", "--before", "default-reset"]
     subprocess.run(base + ["--after", "no-reset", "verify-flash", "0x8000", str(table)],
                    check=True, timeout=45)
-    with tempfile.TemporaryDirectory(prefix="waypin-restore-") as directory:
+    with tempfile.TemporaryDirectory(prefix="mappin-restore-") as directory:
         raw = Path(directory) / "userdata.bin"
         raw.write_bytes(userdata)
         subprocess.run(base + ["--after", "hard-reset", "write-flash", hex(USERDATA_OFFSET), str(raw)],
@@ -62,7 +66,7 @@ def main() -> None:
     parser.add_argument("--yes", action="store_true", help="确认覆盖目标盒子的用户数据")
     args = parser.parse_args()
     if args.backup is None:
-        path = input("把移点盒的完整备份文件拖到此处，按回车\n").strip()
+        path = input("把MapPin-Box的完整备份文件拖到此处，按回车\n").strip()
         parts = [path] if Path(path).is_file() else shlex.split(path)
         if len(parts) != 1:
             raise ValueError("请选择一个完整备份文件")

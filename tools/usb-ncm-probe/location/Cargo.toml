@@ -1,11 +1,11 @@
 [package]
-name = "waypin-usb-location-probe"
+name = "mappin-usb-location-probe"
 version = "0.1.1"
 edition = "2024"
 publish = false
 
 [[package.metadata.esp-idf-sys.extra_components]]
-component_dirs = ["../components/waypin_usb_network"]
+component_dirs = ["../components/mappin_usb_network"]
 
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "espressif/mdns", version = "1.2" }
@@ -17,7 +17,7 @@ opt-level = "z"
 enigma-embedded-bridge-protocol = { path = "../../../vendor/enigma/apps/embedded/bridge-protocol" }
 enigma-embedded-core = { path = "../../../vendor/enigma/apps/embedded/core" }
 esp-idf-svc = { version = "0.52.1", features = ["critical-section"] }
-waypin-box-model = { path = "../../../firmware/model" }
+mappin-box-model = { path = "../../../firmware/model" }
 idevice = { git = "https://github.com/jkcoxson/idevice.git", rev = "63a341d7f624b5c1f2540e4cecb269151a2caf52", default-features = false, features = ["core_device_proxy", "dvt", "location_simulation", "remote_pairing", "rsd", "rustcrypto", "tcp", "tunnel_tcp_stack"] }
 log = "0.4"
 plist = "1"

@@ -1262,7 +1262,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "waypin-box-model"
+name = "mappin-box-model"
 version = "0.2.0"
 dependencies = [
  "serde",
@@ -1270,14 +1270,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "waypin-usb-location-probe"
+name = "mappin-usb-location-probe"
 version = "0.1.1"
 dependencies = [
  "embuild",
  "enigma-embedded-bridge-protocol",
  "enigma-embedded-core",
  "esp-idf-svc",
- "waypin-box-model",
+ "mappin-box-model",
  "idevice",
  "log",
  "plist",

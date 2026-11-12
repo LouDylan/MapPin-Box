@@ -21,7 +21,8 @@ pub fn snapshot() -> Value {
         _ => "其他原因",
     };
     json!({
-        "chip": "ESP32-S3", "cores": 2, "configured_cpu_mhz": 240,
+        "chip": if cfg!(esp32) { "ESP32" } else { "ESP32-S3" },
+        "cores": 2, "configured_cpu_mhz": 240,
         "idf_version": unsafe { CStr::from_ptr(sys::esp_get_idf_version()) }.to_string_lossy(),
         "flash_bytes": if flash_ok { Some(flash_bytes) } else { None },
         "psram_bytes": unsafe { sys::esp_psram_get_size() },

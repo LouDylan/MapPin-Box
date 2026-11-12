@@ -1,5 +1,5 @@
 use crate::{app::App, wifi_access::WifiAccessPoint};
-use waypin_box_model::{HotspotChange, WifiCredentials};
+use mappin_box_model::{HotspotChange, WifiCredentials};
 use serde_json::{Value, json};
 use std::{
     error::Error,
@@ -65,7 +65,7 @@ impl WifiControl {
         let worker_state = state.clone();
         let worker_app = app.clone();
         std::thread::Builder::new()
-            .name("waypin-wifi".into())
+            .name("mappin-wifi".into())
             .stack_size(24 * 1024)
             .spawn(move || run(wifi, receiver, worker_state, worker_app))?;
         let control = Self {

@@ -54,11 +54,11 @@ static esp_err_t status_page(httpd_req_t *req)
 {
     char client[INET6_ADDRSTRLEN] = "";
     client_address(req, client, sizeof(client));
-    struct waypin_usb_network_status status;
-    waypin_usb_network_status(&status);
+    struct mappin_usb_network_status status;
+    mappin_usb_network_status(&status);
     char body[768];
     int len = snprintf(body, sizeof(body),
-        "{\"version\":\"" PROBE_VERSION "\",\"address\":\"" WAYPIN_USB_ADDRESS "\","
+        "{\"version\":\"" PROBE_VERSION "\",\"address\":\"" MAPPIN_USB_ADDRESS "\","
         "\"client\":\"%s\",\"attached\":%s,\"suspended\":%s,"
         "\"mounts\":%" PRIu32 ",\"resumes\":%" PRIu32 ","
         "\"rx_packets\":%" PRIu32 ",\"tx_packets\":%" PRIu32 ","
@@ -98,8 +98,8 @@ static void start_http(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Waypin Box USB-NCM probe " PROBE_VERSION "; no persistent writes");
-    waypin_usb_network_start();
+    ESP_LOGI(TAG, "MapPin-Box USB-NCM probe " PROBE_VERSION "; no persistent writes");
+    mappin_usb_network_start();
     start_http();
-    ESP_LOGI(TAG, "WAYPIN_USB_NCM_READY http://" WAYPIN_USB_ADDRESS " Router=0 DNS=0");
+    ESP_LOGI(TAG, "MAPPIN_USB_NCM_READY http://" MAPPIN_USB_ADDRESS " Router=0 DNS=0");
 }

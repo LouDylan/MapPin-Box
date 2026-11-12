@@ -1,8 +1,10 @@
 /.private/
 /.i4-phone.*
+/.mappin-phone.*
 /.waypin-phone.*
 /private/
 /backups/
+*.mappinbackup
 *.waypinbackup
 *.i4backup
 *.mobileconfig
@@ -20,6 +22,7 @@ __pycache__/
 /node_modules/
 
 target/
+/firmware/target-*/
 .embuild/
 managed_components/
 build/

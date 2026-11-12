@@ -1,6 +1,6 @@
 use crate::{
     app::App,
-    diagnostics,
+    bluetooth, diagnostics,
     wifi_control::{Command, WifiControl},
 };
 use esp_idf_svc::{
@@ -12,11 +12,6 @@ use esp_idf_svc::{
     io::{Read, Write},
     sys,
 };
-use waypin_box_model::{
-    Backup, HotspotChange, MapChange, Place, WifiCredentials,
-    backup::{BackupExport, EXPORT_WINDOW},
-    control_client,
-};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
@@ -24,6 +19,11 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::{Arc, Mutex},
     time::Instant,
+};
+use mappin_box_model::{
+    Backup, ControlLink, HotspotChange, MapChange, Place, WifiCredentials,
+    backup::{BackupExport, EXPORT_WINDOW},
+    control_link,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -33,18 +33,22 @@ struct ControlAccessDenied;
 
 impl std::fmt::Display for ControlAccessDenied {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("请连接盒子热点后访问控制与管理功能")
+        formatter.write_str("请通过蓝牙或盒子的 Wi-Fi 热点访问")
     }
 }
 
 impl Error for ControlAccessDenied {}
 
-fn client_address(request: &mut Request<&mut EspHttpConnection<'_>>) -> Result<IpAddr> {
-    let fd = unsafe { sys::httpd_req_to_sockfd(request.connection().handle()) };
+fn socket_address(fd: i32, peer: bool) -> Result<IpAddr> {
     let mut storage = sys::sockaddr_storage::default();
     let mut size = size_of::<sys::sockaddr_storage>() as sys::socklen_t;
     let result = unsafe {
-        sys::lwip_getpeername(fd, &mut storage as *mut _ as *mut sys::sockaddr, &mut size)
+        let address = (&mut storage as *mut sys::sockaddr_storage).cast();
+        if peer {
+            sys::lwip_getpeername(fd, address, &mut size)
+        } else {
+            sys::lwip_getsockname(fd, address, &mut size)
+        }
     };
     if result != 0 {
         return Err("无法读取手机网络地址".into());
@@ -62,13 +66,52 @@ fn client_address(request: &mut Request<&mut EspHttpConnection<'_>>) -> Result<I
         }
         _ => return Err("手机网络地址类型无效".into()),
     };
-    if address.is_unspecified() || address.is_loopback() || address.is_multicast() {
-        return Err("手机网络地址无效，请重新连接盒子 Wi-Fi".into());
-    }
-    if !control_client(address) {
-        return Err(Box::new(ControlAccessDenied));
-    }
     Ok(address)
+}
+
+struct Client {
+    local: IpAddr,
+    peer: IpAddr,
+    link: ControlLink,
+}
+
+fn client(request: &mut Request<&mut EspHttpConnection<'_>>) -> Result<Client> {
+    let fd = unsafe { sys::httpd_req_to_sockfd(request.connection().handle()) };
+    let local = socket_address(fd, false)?;
+    let peer = socket_address(fd, true)?;
+    let pan = bluetooth::endpoint().map(|endpoint| (endpoint.local, endpoint.peer));
+    let link = control_link(local, peer, pan).ok_or(ControlAccessDenied)?;
+    Ok(Client { local, peer, link })
+}
+
+fn client_address(request: &mut Request<&mut EspHttpConnection<'_>>) -> Result<IpAddr> {
+    Ok(client(request)?.peer)
+}
+
+fn sensitive_client(request: &mut Request<&mut EspHttpConnection<'_>>) -> Result<Client> {
+    let client = client(request)?;
+    let host = client.local.to_string();
+    let host_port = format!("{host}:80");
+    if !request
+        .header("Host")
+        .is_some_and(|value| value == host || value == host_port)
+        || request
+            .header("Origin")
+            .is_some_and(|value| value != format!("http://{host}"))
+    {
+        return Err(ControlAccessDenied.into());
+    }
+    Ok(client)
+}
+
+#[cfg(esp32)]
+fn bluetooth_client(
+    request: &mut Request<&mut EspHttpConnection<'_>>,
+) -> Result<bluetooth::Endpoint> {
+    if sensitive_client(request)?.link != ControlLink::Bluetooth {
+        return Err(ControlAccessDenied.into());
+    }
+    bluetooth::endpoint().ok_or_else(|| "蓝牙连接已断开，请重新连接".into())
 }
 
 fn respond(request: Request<&mut EspHttpConnection<'_>>, status: u16, value: Value) -> Result<()> {
@@ -360,10 +403,15 @@ pub fn start(
         Method::Get,
         move |mut request| -> Result<()> {
             let result = (|| {
-                client_address(&mut request)?;
+                let client = sensitive_client(&mut request)?;
+                let link = if client.link == ControlLink::Bluetooth { "bluetooth" } else { "wifi" };
+                #[cfg(esp32)]
+                let bluetooth = bluetooth::snapshot();
+                #[cfg(not(esp32))]
+                let bluetooth = Value::Null;
                 Ok(
                     json!({"device": diagnostics::snapshot(), "app": admin_app.snapshot()?,
-            "wifi": admin_wifi.snapshot()?, "debug": admin_app.debug_state()?}),
+            "wifi": admin_wifi.snapshot()?, "debug": admin_app.debug_state()?, "link": link, "bluetooth": bluetooth}),
                 )
             })();
             finish(request, result, 200)
@@ -375,16 +423,7 @@ pub fn start(
         Method::Post,
         move |mut request| -> Result<()> {
             let result = (|| -> Result<ExportReply> {
-                if !matches!(
-                    request.header("Host"),
-                    Some("192.168.71.1" | "192.168.71.1:80")
-                ) || request
-                    .header("Origin")
-                    .is_some_and(|origin| origin != "http://192.168.71.1")
-                {
-                    return Err(Box::new(ControlAccessDenied));
-                }
-                let client = client_address(&mut request)?;
+                let client = sensitive_client(&mut request)?.peer;
                 let body = read_json::<ExportRequest>(&mut request)?;
                 let mut approval = backup.lock().map_err(|_| "备份功能暂不可用")?;
                 let now = Instant::now();
@@ -419,7 +458,10 @@ pub fn start(
                             &[
                                 ("Content-Type", "application/octet-stream"),
                                 ("Cache-Control", "no-store"),
-                                ("Content-Disposition", "attachment; filename=waypin-box.waypinbackup"),
+                                (
+                                    "Content-Disposition",
+                                    "attachment; filename=mappin-box.mappinbackup",
+                                ),
                                 ("X-Content-Type-Options", "nosniff"),
                             ],
                         )?
@@ -430,6 +472,48 @@ pub fn start(
             }
         },
     )?;
+    #[cfg(esp32)]
+    {
+        let bluetooth_app = app.clone();
+        server.fn_handler(
+            "/api/bluetooth",
+            Method::Post,
+            move |mut request| -> Result<()> {
+                let result = (|| {
+                    if sensitive_client(&mut request)?.link != ControlLink::Wifi {
+                        return Err(ControlAccessDenied.into());
+                    }
+                    bluetooth_app.can_change_phone()?;
+                    read_json::<bluetooth::Action>(&mut request)?.submit()?;
+                    Ok(json!({"ok": true}))
+                })();
+                finish(request, result, 202)
+            },
+        )?;
+        server.fn_handler(
+            "/api/bluetooth/pairing",
+            Method::Get,
+            move |mut request| -> Result<()> {
+                let result =
+                    bluetooth_client(&mut request).and_then(crate::wireless_pairing::snapshot);
+                finish(request, result, 200)
+            },
+        )?;
+        let pair_app = app.clone();
+        server.fn_handler(
+            "/api/bluetooth/pairing",
+            Method::Post,
+            move |mut request| -> Result<()> {
+                let result = (|| {
+                    let endpoint = bluetooth_client(&mut request)?;
+                    read_json::<Empty>(&mut request)?;
+                    crate::wireless_pairing::start(pair_app.clone(), endpoint)?;
+                    crate::wireless_pairing::snapshot(endpoint)
+                })();
+                finish(request, result, 202)
+            },
+        )?;
+    }
     for (path, scanning) in [("/api/wifi/scan", true), ("/api/wifi/disconnect", false)] {
         let network = wifi.clone();
         server.fn_handler(path, Method::Post, move |mut request| -> Result<()> {
@@ -463,8 +547,9 @@ pub fn start(
         Method::Post,
         move |mut request| -> Result<()> {
             let result = (|| {
+                let address = client_address(&mut request)?;
                 read_json::<Empty>(&mut request)?;
-                Ok(json!({"ok": true, "job_id": replay.replay_last()?}))
+                Ok(json!({"ok": true, "job_id": replay.replay_last(Some(address))?}))
             })();
             finish(request, result, 202)
         },

@@ -13,7 +13,7 @@ export async function api(path, data, { binary = false } = {}) {
     return value;
   } catch (error) {
     if (error.name === 'AbortError' || error instanceof TypeError)
-      throw new Error('暂时无法连接盒子，请检查供电和 Wi-Fi，再重新查看当前状态');
+      throw new Error('暂时无法连接盒子，请检查供电和连接后重试');
     throw error;
   } finally { clearTimeout(timeout); }
 }

@@ -1,6 +1,6 @@
 use crate::persistent_storage::PersistentNvsPartition;
 use esp_idf_svc::nvs::{EspKeyValueStorage, EspNvs, NvsCustom};
-use waypin_box_model::{MapChange, MapConfig, MapCredentials};
+use mappin_box_model::{MapChange, MapConfig, MapCredentials};
 use std::error::Error;
 
 pub struct MapSettings {
@@ -40,6 +40,19 @@ impl MapSettings {
 
     pub fn save(&mut self, change: MapChange) -> Result<(), Box<dyn Error>> {
         let value = self.value.change(change)?;
+        self.store(value)
+    }
+
+    pub fn seed_amap(&mut self, credentials: MapCredentials) -> Result<bool, Box<dyn Error>> {
+        let mut value = self.value.clone();
+        if !value.seed_amap(credentials)? {
+            return Ok(false);
+        }
+        self.store(value)?;
+        Ok(true)
+    }
+
+    fn store(&mut self, value: MapConfig) -> Result<(), Box<dyn Error>> {
         self.storage
             .set_raw("config_v3", &serde_json::to_vec(&value)?)?;
         self.value = value;

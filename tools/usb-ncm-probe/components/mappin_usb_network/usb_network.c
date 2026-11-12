@@ -99,7 +99,7 @@ static void local_dhcp(esp_netif_dhcp_option_mode_t mode)
 static void start_netif(uint8_t host_mac[6])
 {
     esp_netif_ip_info_t ip = {0};
-    ESP_ERROR_CHECK(esp_netif_str_to_ip4(WAYPIN_USB_ADDRESS, &ip.ip));
+    ESP_ERROR_CHECK(esp_netif_str_to_ip4(MAPPIN_USB_ADDRESS, &ip.ip));
     ESP_ERROR_CHECK(esp_netif_str_to_ip4("255.255.255.0", &ip.netmask));
     esp_netif_inherent_config_t base = ESP_NETIF_INHERENT_DEFAULT_ETH();
     base.flags = ESP_NETIF_DHCP_SERVER | ESP_NETIF_FLAG_AUTOUP;
@@ -129,7 +129,7 @@ static void start_netif(uint8_t host_mac[6])
     host_mac[5] ^= 1;
     /* The descriptor identifies the HOST end. lwIP must use a different MAC. */
     ESP_ERROR_CHECK(esp_netif_set_mac(usb_netif, device_mac));
-    ESP_ERROR_CHECK(esp_netif_set_hostname(usb_netif, "waypin-usb"));
+    ESP_ERROR_CHECK(esp_netif_set_hostname(usb_netif, "mappin-usb"));
     local_dhcp(ESP_NETIF_OP_SET);
     /* A permanently available local interface keeps DHCP ready before the host
      * configures NCM. Physical USB state is reported separately. Suspend keeps
@@ -141,7 +141,7 @@ static void start_netif(uint8_t host_mac[6])
     local_dhcp(ESP_NETIF_OP_GET);
 }
 
-void waypin_usb_network_start(void)
+void mappin_usb_network_start(void)
 {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -153,9 +153,9 @@ void waypin_usb_network_start(void)
     ESP_ERROR_CHECK(tinyusb_net_init(&network));
 }
 
-void waypin_usb_network_status(struct waypin_usb_network_status *status)
+void mappin_usb_network_status(struct mappin_usb_network_status *status)
 {
-    *status = (struct waypin_usb_network_status) {
+    *status = (struct mappin_usb_network_status) {
         .attached = atomic_load(&attached),
         .suspended = atomic_load(&suspended),
         .mounts = atomic_load(&mounts),

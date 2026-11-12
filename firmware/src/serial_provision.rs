@@ -1,19 +1,17 @@
-//! Always-available pairing-record import over the board's CH340K console UART.
+//! Local provisioning over the board's USB console UART.
 
 use std::{
     thread,
     time::{Duration, Instant},
 };
 
-use enigma_embedded_bridge_protocol::{
-    ERROR_PREFIX, HEADER_PREFIX, READY_LINE, parse_header, success_line, verify_payload,
-};
+use enigma_embedded_bridge_protocol::{Header, MAX_PAIRING_RECORD_BYTES, verify_payload};
 use esp_idf_svc::{
     hal::{delay::TickType, uart::UartDriver},
     sys,
 };
 
-use crate::app::App;
+use crate::app::{App, PairingBusy};
 use std::sync::Arc;
 
 const HEADER_LIMIT: usize = 160;
@@ -21,10 +19,58 @@ const READ_SLICE: Duration = Duration::from_millis(250);
 const PAYLOAD_TIMEOUT: Duration = Duration::from_secs(15);
 const HEADER_POLL_WINDOW: Duration = Duration::from_secs(60);
 const LISTENER_STACK_BYTES: usize = 12 * 1024;
+const FRAME_PREFIX: &str = "MAPPIN-PROVISION/1";
+
+enum Kind {
+    Pairing,
+    Amap,
+}
+
+impl Kind {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Pairing => "pairing",
+            Self::Amap => "amap",
+        }
+    }
+
+    fn limit(&self) -> usize {
+        match self {
+            Self::Pairing => MAX_PAIRING_RECORD_BYTES,
+            Self::Amap => 1024,
+        }
+    }
+
+    fn apply(&self, app: &App, payload: &[u8]) -> Result<&'static str, &'static str> {
+        match self {
+            Self::Pairing => app
+                .import_pairing(payload)
+                .map(|()| "saved")
+                .map_err(|error| {
+                    if error.is::<PairingBusy>() {
+                        "busy"
+                    } else {
+                        "rejected"
+                    }
+                }),
+            Self::Amap => {
+                let credentials = serde_json::from_slice(payload).map_err(|_| "invalid")?;
+                app.seed_amap(credentials)
+                    .map(|written| if written { "written" } else { "kept" })
+                    .map_err(|_| "rejected")
+            }
+        }
+    }
+}
+
+struct Frame {
+    kind: Kind,
+    header: Header,
+}
 
 pub fn start(uart: UartDriver<'static>, app: Arc<App>) -> Result<(), String> {
     thread::Builder::new()
-        .name("waypin-provision".into())
+        .name("mappin-provision".into())
         .stack_size(LISTENER_STACK_BYTES)
         .spawn(move || run_listener(uart, app))
         .map(|_| ())
@@ -32,62 +78,95 @@ pub fn start(uart: UartDriver<'static>, app: Arc<App>) -> Result<(), String> {
 }
 
 fn run_listener(uart: UartDriver<'static>, app: Arc<App>) {
-    log::info!("{READY_LINE}");
-    log::info!("persistent desktop pairing listener ready");
+    log::info!("MAPPIN_PROVISION_READY");
     loop {
-        match receive_pairing_record(&uart) {
-            Ok(Some(payload)) => match app.import_pairing(&payload) {
-                Ok(()) => log::info!("{}", success_line(&payload)),
-                Err(error) => log::error!("{ERROR_PREFIX} invalid pairing record: {error}"),
-            },
+        match receive_frame(&uart) {
+            Ok(Some((frame, payload))) => {
+                let result = verify_payload(&frame.header, &payload)
+                    .map_err(|_| "checksum")
+                    .and_then(|()| frame.kind.apply(&app, &payload));
+                let (code, status) = match result {
+                    Ok(status) => ("OK", status),
+                    Err(status) => ("ERROR", status),
+                };
+                let reply = format!(
+                    "MAPPIN_PROVISION_{code} {} {} {status}\n",
+                    frame.kind.name(),
+                    frame.header.sha256
+                );
+                if uart.write(reply.as_bytes()).is_err() {
+                    log::warn!("MAPPIN_PROVISION_REPLY_FAILED");
+                }
+            }
             Ok(None) => {}
-            Err(error) => log::error!("{ERROR_PREFIX} {error}"),
+            Err(error) => log::warn!("MAPPIN_PROVISION_FRAME_ERROR: {error}"),
         }
     }
 }
 
-fn receive_pairing_record(uart: &UartDriver<'_>) -> Result<Option<Vec<u8>>, String> {
-    let Some((header, payload_prefix)) = read_header(uart, HEADER_POLL_WINDOW)? else {
+fn receive_frame(uart: &UartDriver<'_>) -> Result<Option<(Frame, Vec<u8>)>, String> {
+    let Some((frame, payload_prefix)) = read_header(uart, HEADER_POLL_WINDOW)? else {
         return Ok(None);
     };
-    if payload_prefix.len() > header.payload_len {
-        return Err("pairing payload started with more bytes than declared".into());
+    if payload_prefix.len() > frame.header.payload_len {
+        return Err("payload started with more bytes than declared".into());
     }
-    let payload =
-        read_exact_with_timeout(uart, header.payload_len, &payload_prefix, PAYLOAD_TIMEOUT)?;
-    verify_payload(&header, &payload).map_err(|error| error.to_string())?;
-    Ok(Some(payload))
+    let payload = read_exact_with_timeout(
+        uart,
+        frame.header.payload_len,
+        &payload_prefix,
+        PAYLOAD_TIMEOUT,
+    )?;
+    Ok(Some((frame, payload)))
 }
 
-fn parse_line(
-    uart: &UartDriver<'_>,
-    line: &[u8],
-) -> Result<Option<enigma_embedded_bridge_protocol::Header>, String> {
+fn parse_line(uart: &UartDriver<'_>, line: &[u8]) -> Result<Option<Frame>, String> {
     let Ok(text) = core::str::from_utf8(line) else {
         return Ok(None);
     };
-    // Keep the serial handshake compatible with existing setup scripts.
-    if text.trim() == "I4-INFO/1" {
+    if text.trim() == "MAPPIN-INFO/1" {
         let reply = format!(
-            "I4_INFO/1 version={} protocol=2\n",
+            "MAPPIN_INFO/1 version={} protocol=1\n",
             env!("CARGO_PKG_VERSION")
         );
         uart.write(reply.as_bytes())
             .map_err(|error| error.to_string())?;
         return Ok(None);
     }
-    let Some(offset) = text.find(HEADER_PREFIX) else {
+    let Some(rest) = text.trim().strip_prefix(FRAME_PREFIX) else {
         return Ok(None);
     };
-    parse_header(&text[offset..])
-        .map(Some)
-        .map_err(|error| error.to_string())
+    let mut fields = rest.split_ascii_whitespace();
+    let kind = match fields.next() {
+        Some("pairing") => Kind::Pairing,
+        Some("amap") => Kind::Amap,
+        _ => return Err("unknown provisioning kind".into()),
+    };
+    let payload_len = fields
+        .next()
+        .and_then(|field| field.parse::<usize>().ok())
+        .filter(|size| (1..=kind.limit()).contains(size))
+        .ok_or("invalid provisioning length")?;
+    let sha256 = fields
+        .next()
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or("invalid provisioning checksum")?;
+    if fields.next().is_some() {
+        return Err("unexpected provisioning header field".into());
+    }
+    Ok(Some(Frame {
+        kind,
+        header: Header {
+            payload_len,
+            sha256: sha256.to_ascii_lowercase(),
+        },
+    }))
 }
 
 fn read_header(
     uart: &UartDriver<'_>,
     timeout: Duration,
-) -> Result<Option<(enigma_embedded_bridge_protocol::Header, Vec<u8>)>, String> {
+) -> Result<Option<(Frame, Vec<u8>)>, String> {
     let deadline = Instant::now() + timeout;
     let mut line = Vec::with_capacity(HEADER_LIMIT);
     let mut chunk = [0u8; 128];
@@ -138,14 +217,14 @@ fn read_exact_with_timeout(
         ) {
             Ok(count) => offset += count,
             Err(error) if error.code() == sys::ESP_ERR_TIMEOUT => {}
-            Err(error) => return Err(format!("UART pairing payload read failed: {error}")),
+            Err(error) => return Err(format!("UART provisioning payload read failed: {error}")),
         }
     }
     if offset == length {
         Ok(payload)
     } else {
         Err(format!(
-            "pairing payload timed out after {offset}/{length} bytes"
+            "provisioning payload timed out after {offset}/{length} bytes"
         ))
     }
 }

@@ -10,7 +10,7 @@ use esp_idf_svc::{
     },
     sys::EspError,
 };
-use waypin_box_model::indicator::{Pattern, Rgb};
+use mappin_box_model::indicator::{Pattern, Rgb};
 use std::time::{Duration, Instant};
 
 const RESOLUTION: Hertz = Hertz(10_000_000);
@@ -92,7 +92,7 @@ impl StatusLed {
         }
         if changed {
             self.pattern = Some(pattern);
-            log::info!("WAYPIN_LED_STATE: {pattern:?}");
+            log::info!("MAPPIN_LED_STATE: {pattern:?}");
         }
         Ok(())
     }
@@ -106,7 +106,7 @@ impl StatusLed {
         if let Some(driver) = led
             && let Err(error) = driver.draw(pattern, notice_at, now)
         {
-            log::warn!("WAYPIN_LED_DISABLED: {error}");
+            log::warn!("MAPPIN_LED_DISABLED: {error}");
             *led = None;
         }
     }

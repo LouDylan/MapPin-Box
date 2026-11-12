@@ -77,6 +77,14 @@ pub struct MapChange {
 }
 
 impl MapConfig {
+    pub fn seed_amap(&mut self, credentials: MapCredentials) -> Result<bool, String> {
+        if self.amap.configured() {
+            return Ok(false);
+        }
+        self.amap = credentials.validate()?;
+        Ok(true)
+    }
+
     pub fn migrate_regions(mut self) -> Self {
         self.global_provider = Some(MapProvider::Osm);
         if self.provider.global() {
@@ -189,6 +197,33 @@ impl MapConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usb_defaults_fill_missing_amap_without_changing_selected_maps_or_overwriting_keys() {
+        let mut config = MapConfig {
+            provider: MapProvider::Tianditu,
+            domestic_provider: Some(MapProvider::Tianditu),
+            global_provider: Some(MapProvider::Osm),
+            tianditu_key: "t".repeat(32),
+            ..Default::default()
+        };
+        let credentials = |value: &str| MapCredentials {
+            key: value.repeat(32),
+            security_code: "s".repeat(32),
+        };
+        assert!(config.seed_amap(credentials("a")).unwrap());
+        assert!(!config.seed_amap(credentials("b")).unwrap());
+        assert_eq!(config.amap.key, "a".repeat(32));
+        assert_eq!(
+            config.regional_providers(),
+            serde_json::json!({"domestic":"tianditu","global":"osm"})
+        );
+        let mut fresh = MapConfig::default();
+        assert!(fresh.seed_amap(MapCredentials::default()).is_err());
+        assert!(!fresh.configured());
+        assert!(fresh.seed_amap(credentials("a")).unwrap());
+        assert!(fresh.configured());
+    }
 
     #[test]
     fn switching_preserves_other_keys_and_reuses_saved_credentials() {

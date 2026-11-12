@@ -7,13 +7,13 @@
     <button id="export-device-backup" class="primary" type="button" disabled><span data-lucide="download" aria-hidden="true"></span><span id="device-backup-label">导出完整备份</span></button>
   </div>
   <p id="device-backup-message" class="inline-message" role="status" hidden></p>
-  <p class="section-hint">恢复时用 USB 将移点盒接到 Mac，运行 <code>恢复盒子备份.command</code>，将 <code>.waypinbackup</code> 文件拖入窗口并按提示确认。</p>
+  <p class="section-hint">恢复时用 USB 将MapPin-Box接到 Mac，运行 <code>恢复盒子备份.command</code>，将 <code>.mappinbackup</code> 文件拖入窗口并按提示确认。</p>
 </section>
 
 <section id="status-light" class="admin-section help-section" aria-labelledby="status-light-title">
 <div class="section-heading"><h2 id="status-light-title">状态灯</h2></div>
 <dl>
-<dt>蓝灯</dt><dd>慢闪等候热点连接，常亮表示已有设备加入。</dd>
+<dt>蓝灯</dt><dd>慢闪等候连接，常亮表示蓝牙或热点已连接。</dd>
 <dt>紫灯呼吸 · 绿灯常亮</dt><dd>紫灯表示正在处理操作，绿灯表示已成功设置模拟定位。</dd>
 <dt>黄灯</dt><dd>两连闪表示待配对，呼吸表示完整备份等候 BOOT 确认。</dd>
 <dt>白灯</dt><dd>启动短亮，恢复真实定位后闪两次。备份确认后短亮。</dd>
@@ -24,7 +24,28 @@
 <section id="iphone" class="admin-section help-section" aria-labelledby="iphone-title">
 <div class="section-heading"><h2 id="iphone-title">接入新 iPhone</h2></div>
 <p class="help-phone">当前手机：<strong id="help-phone">读取中</strong><span id="help-model" hidden></span></p>
+<div id="bluetooth-setup" hidden>
+  <p class="section-hint" id="bt-status" role="status"></p>
+  <div id="bt-classic" hidden>
+    <p class="section-hint">打开 iPhone 的蜂窝数据、蓝牙和「个人热点 → 允许其他人加入」。扫描时让 iPhone 停在「设置 → 蓝牙」；也可以用另一台设备打开此页。</p>
+    <div class="form-actions"><button id="bt-scan" type="button" class="secondary"><span data-lucide="search" aria-hidden="true"></span>扫描蓝牙设备</button></div>
+    <div id="bt-devices" class="network-list" aria-live="polite"></div>
+    <div id="bt-confirm" class="inline-confirm" hidden>
+      <p>核对 iPhone 上的蓝牙配对码：<strong id="bt-code"></strong></p>
+      <div class="form-actions"><button id="bt-confirm-code" type="button" class="primary">号码一致，确认配对</button></div>
+    </div>
+  </div>
+  <p id="bt-open" hidden><a id="bt-address">打开蓝牙页面</a></p>
+  <div id="developer-pairing" hidden>
+    <p class="section-hint">iOS 27 或更新版本。在「设置 → 隐私与安全性 → 开发者模式」开启开发者模式。</p>
+    <div class="form-actions"><button id="developer-pair" class="primary" type="button">开始开发者配对</button></div>
+    <p id="developer-status" class="inline-message" role="status" hidden></p>
+  </div>
+</div>
+<details id="mac-setup" open>
+<summary>通过 Mac 接入或准备定位服务</summary>
 <ol class="setup-steps"><li><strong>连接 Mac</strong><p>用数据线将 iPhone 和盒子接到 Mac，解锁 iPhone。</p></li><li><strong>运行接入助手</strong><p>在 Mac 双击 <code>接入新iPhone.command</code>，按提示信任电脑、开启开发者模式，并导入配对资料。</p></li><li><strong>连接盒子热点</strong><p>完成后，iPhone 加入 <strong id="help-ssid">盒子热点</strong>，使用热点密码，在 Safari 打开 <a href="/">192.168.71.1</a>。</p></li></ol>
-<p id="help-replace" class="section-hint" hidden>更换手机前先恢复旧手机真实定位。更换配对会保留收藏、地图凭证和 Wi-Fi 配置。</p>
-<dl class="setup-recovery"><dt>手机重启或升级后无法使用</dt><dd>把 iPhone 接回 Mac，运行 <code>准备iPhone定位服务.command</code>。加入热点不会自动完成新手机的首次配对。</dd></dl>
+<dl class="setup-recovery"><dt>手机重启或升级后无法使用</dt><dd>把 iPhone 接回 Mac，运行 <code>准备iPhone定位服务.command</code>。</dd></dl>
+</details>
+<p id="help-replace" class="section-hint" hidden>更换手机前先恢复旧手机真实定位。收藏、地图和 Wi-Fi 设置会保留。</p>
 </section>

@@ -97,7 +97,7 @@ async def run(args):
         except RuntimeError:
             print('暂未检测到唯一的盒子串口。')
         return
-    print('准备 iPhone 服务\n请用数据线连接并解锁 iPhone。' if args.prepare_only else '接入新 iPhone（需配套 v0.8.0 或更新盒子固件）\n请先让旧手机恢复真实定位，再将新 iPhone 和盒子接到 Mac。')
+    print('准备 iPhone 服务\n请用数据线连接并解锁 iPhone。' if args.prepare_only else '接入新 iPhone（需配套 v0.14.0 或更新盒子固件）\n请先让旧手机恢复真实定位，再将新 iPhone 和盒子接到 Mac。')
     udid = await choose_device()
     print('1/4 解锁 iPhone，在手机上确认“信任此电脑”；若出现密码框，请在手机输入。')
     info = await ensure_developer_mode(udid)

@@ -110,45 +110,48 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
 class ProvisionProtocolTests(unittest.TestCase):
     def test_an_old_firmware_never_receives_the_new_phone_identity(self):
         import provision_board as bridge
+        import usb_provision as transport
         connection=Mock()
         manager=Mock(__enter__=Mock(return_value=connection),__exit__=Mock(return_value=False))
-        with patch.object(bridge.serial,'Serial',return_value=manager),patch.object(bridge.time,'sleep'), \
-             patch.object(bridge.time,'monotonic',side_effect=[0,4]):
-            with self.assertRaisesRegex(RuntimeError,'v0.8.0'): bridge.provision('fixture-port',b'private-fixture')
-        self.assertEqual([call.args[0] for call in connection.write.call_args_list],[b'I4-INFO/1\n'])
+        with patch.object(transport.serial,'Serial',return_value=manager),patch.object(transport.time,'sleep'), \
+             patch.object(transport.time,'monotonic',side_effect=[0,5]):
+            with self.assertRaisesRegex(RuntimeError,'v0.14.0'): bridge.provision('fixture-port',b'private-fixture')
+        self.assertEqual([call.args[0] for call in connection.write.call_args_list],[b'MAPPIN-INFO/1\n'])
 
     def test_supported_firmware_receives_a_digest_checked_identity_only_after_its_reply(self):
         import provision_board as bridge
+        import usb_provision as transport
         import hashlib
         payload=b'private-fixture';digest=hashlib.sha256(payload).hexdigest()
-        connection=Mock(read=Mock(side_effect=[b'I4_INFO/1 version=0.8.0 protocol=2\n',f'ENIGMA_PROVISION_OK {digest}'.encode()]))
+        connection=Mock(read=Mock(side_effect=[b'MAPPIN_INFO/1 version=0.14.0 protocol=1\n',f'MAPPIN_PROVISION_OK pairing {digest} saved\n'.encode()]))
         manager=Mock(__enter__=Mock(return_value=connection),__exit__=Mock(return_value=False))
-        with patch.object(bridge.serial,'Serial',return_value=manager),patch.object(bridge.time,'sleep'), \
+        with patch.object(transport.serial,'Serial',return_value=manager),patch.object(transport.time,'sleep'), \
              contextlib.redirect_stdout(io.StringIO()): bridge.provision('fixture-port',payload)
         writes=[call.args[0] for call in connection.write.call_args_list]
-        self.assertEqual(writes[0],b'I4-INFO/1\n');self.assertTrue(writes[1].startswith(b'ENIGMA-PROVISION/1'))
+        self.assertEqual(writes[0],b'MAPPIN-INFO/1\n');self.assertTrue(writes[1].startswith(b'MAPPIN-PROVISION/1 pairing '))
         self.assertEqual(writes[2],payload)
 
     def test_startup_network_busy_retries_without_reopening_serial(self):
         import hashlib
         import provision_board as bridge
+        import usb_provision as transport
 
         payload = b'private-fixture'
         digest = hashlib.sha256(payload).hexdigest()
-        busy = ('invalid pairing record: 请先恢复真实定位并等待操作完成，再更换手机').encode()
+        busy = f'MAPPIN_PROVISION_ERROR pairing {digest} busy\r\n'.encode()
         connection = Mock(read=Mock(side_effect=[
-            b'I4_INFO/1 version=0.11.5 protocol=2\n',
-            b'\x1b[0;31mE (4500) i4_box: ENIGMA_PROVISION_ERROR ' + busy[:28],
-            busy[28:] + b'\x1b[0m\r\n',
-            f'ENIGMA_PROVISION_OK {digest}\r\n'.encode(),
+            b'MAPPIN_INFO/1 version=0.14.0 protocol=1\n',
+            busy[:28],
+            busy[28:],
+            f'MAPPIN_PROVISION_OK pairing {digest} saved\r\n'.encode(),
         ]))
         manager = Mock(__enter__=Mock(return_value=connection), __exit__=Mock(return_value=False))
-        with patch.object(bridge.serial, 'Serial', return_value=manager) as serial_port, \
-             patch.object(bridge.time, 'sleep'), contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(transport.serial, 'Serial', return_value=manager) as serial_port, \
+             patch.object(transport.time, 'sleep'), contextlib.redirect_stdout(io.StringIO()):
             bridge.provision('fixture-port', payload)
         serial_port.assert_called_once()
-        header = f'ENIGMA-PROVISION/1 {len(payload)} {digest}\n'.encode()
+        header = f'MAPPIN-PROVISION/1 pairing {len(payload)} {digest}\n'.encode()
         self.assertEqual([call.args[0] for call in connection.write.call_args_list],
-                         [b'I4-INFO/1\n', header, payload, header, payload])
+                         [b'MAPPIN-INFO/1\n', header, payload, header, payload])
 
 if __name__=='__main__': unittest.main()

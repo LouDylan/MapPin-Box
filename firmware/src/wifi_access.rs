@@ -13,12 +13,12 @@ use esp_idf_svc::{
         EspWifi, WifiDeviceId, WifiDriver,
     },
 };
-use waypin_box_model::{HotspotChange, HotspotConfig, WifiCredentials};
+use mappin_box_model::{HotspotChange, HotspotConfig, WifiCredentials};
 use serde_json::{Value, json};
 use std::{error::Error, net::Ipv4Addr};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-pub const PASSWORD: &str = "waypin-setup";
+pub const PASSWORD: &str = "mappin-setup";
 const CHANNEL: u8 = 6;
 
 pub struct WifiAccessPoint {
@@ -57,7 +57,7 @@ impl WifiAccessPoint {
         let hotspot = match ap_storage.get_raw("config_v1", &mut ap_buffer)? {
             Some(bytes) => serde_json::from_slice::<HotspotConfig>(bytes)?.validate()?,
             None => HotspotConfig {
-                ssid: format!("Waypin-{:02X}{:02X}", mac[4], mac[5]),
+                ssid: format!("MapPin-{:02X}{:02X}", mac[4], mac[5]),
                 password: PASSWORD.into(),
             },
         };
@@ -93,7 +93,7 @@ impl WifiAccessPoint {
                     .and_then(|value| value.validate().ok())
             });
         log::info!(
-            "WAYPIN_LOCAL_NETWORK_READY: DHCP router=0 DNS=0; phone Internet remains on cellular"
+            "MAPPIN_LOCAL_NETWORK_READY: DHCP router=0 DNS=0; phone Internet remains on cellular"
         );
         Ok(Self {
             wifi,

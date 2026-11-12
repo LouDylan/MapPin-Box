@@ -13,7 +13,7 @@ test('SSID validation measures UTF-8 bytes', () => {
 });
 
 test('passwords are printable ASCII WPA2 passphrases and are never trimmed', () => {
-  assert.equal(hotspotChange('Waypin', ' pass word ').password, ' pass word ');
+  assert.equal(hotspotChange('MapPin', ' pass word ').password, ' pass word ');
   for (const value of ['1234567', 'a'.repeat(64), '密码密码密码', 'hello\nworld'])
-    assert.throws(() => hotspotChange('Waypin', value));
+    assert.throws(() => hotspotChange('MapPin', value));
 });

@@ -13,10 +13,11 @@ const uptime = value => value >= 3600 ? `${Math.floor(value / 3600)} 小时 ${Ma
 let data = null, online = false, loading = true, posting = false, timer = null, inflight = null, toastTimer = null;
 let lastWifiResult = null, lastLocationResult = null, ssidInitialized = false, mapsInitialized = false;
 let backupPending = false, deviceBackup = null;
-let networksSignature = '', eventsSignature = '', confirmedHotspot = null;
+let networksSignature = '', eventsSignature = '', bluetoothSignature = '', confirmedHotspot = null;
+let helpInitialized = false, scannedBluetooth = false;
 const mapRegions = ['domestic', 'global'];
 const mapElement = (region, name) => $(`map-${region}-${name}`);
-const hotspotStorageSlot = 'waypin.hotspot.pending.v1';
+const hotspotStorageSlot = 'mappin.hotspot.pending.v1';
 let pendingHotspot = null;
 try { pendingHotspot = JSON.parse(sessionStorage.getItem(hotspotStorageSlot)); } catch {}
 if (typeof pendingHotspot?.ssid !== 'string' || !Number.isInteger(pendingHotspot?.jobId)) pendingHotspot = null;
@@ -36,7 +37,9 @@ function message(id, value, error = false) {
 }
 function schedule() {
   clearTimeout(timer);
-  if (!document.hidden) timer = setTimeout(() => refresh(), online && (data?.wifi.operation || data?.app.operation) ? 1000 : online ? 5000 : 3000);
+  const busy = data?.wifi.operation || data?.app.operation || data?.app.pairing_busy ||
+    (page === 'help' && ['scanning', 'connecting', 'confirming'].includes(data?.bluetooth?.state));
+  if (!document.hidden) timer = setTimeout(() => refresh(), online && busy ? 1000 : online ? 5000 : 3000);
 }
 async function refresh(force = false) {
   if (inflight) { await inflight; return force ? refresh() : undefined; }
@@ -44,6 +47,9 @@ async function refresh(force = false) {
   inflight = (async () => {
     try {
       const next = await api('/api/admin/status');
+      if (page === 'help' && next.link === 'bluetooth') {
+        next.pairing = await api('/api/bluetooth/pairing').catch(() => null);
+      }
       if (!data || data.app.boot_id !== next.app.boot_id) {
         lastWifiResult = next.wifi.result?.id ?? null;
         lastLocationResult = next.app.result?.id ?? null;
@@ -74,7 +80,7 @@ function render() {
   }
   for (const control of document.querySelectorAll('main button, main select')) control.disabled = posting;
   const { app, wifi } = data;
-  const networkBusy = !!wifi.operation || app.network_busy;
+  const networkBusy = !!wifi.operation || app.network_busy || app.pairing_busy;
   const restoring = !!app.restore_queued || app.operation?.kind === 'restore';
   $('admin-restore').disabled = !online || posting || !app.paired || networkBusy || restoring;
   text('admin-restore-label', app.restore_queued ? '恢复已排队' : restoring ? '正在恢复…' : '恢复真实定位');
@@ -91,10 +97,12 @@ function renderSystem() {
   text('dev-psram', bytes(d.psram_free) + ' / ' + bytes(d.psram_bytes));
 }
 function networkLocked() {
-  return !online || posting || !!data.app.operation || data.app.mode === 'simulating' || !!data.wifi.operation || data.app.network_busy;
+  return !online || posting || !!data.app.operation || data.app.mode === 'simulating' || !!data.wifi.operation || data.app.network_busy || data.app.pairing_busy;
 }
 function renderNetwork() {
   const { app, wifi } = data;
+  $('network-link').hidden = !data.bluetooth;
+  text('network-link', data.link === 'bluetooth' ? '当前通过蓝牙连接。以下是备用 Wi-Fi。' : '当前通过备用 Wi-Fi 连接。');
   text('wifi-ap-name', wifi.ssid); text('wifi-ap-address', 'http://' + wifi.address);
   text('wifi-channel', wifi.channel || '—'); text('wifi-client-count', wifi.client_count == null ? '读取失败' : wifi.client_count + ' 台');
   text('wifi-upstream-name', wifi.upstream.connected ? wifi.upstream.saved_ssid : wifi.upstream.saved_ssid ? wifi.upstream.saved_ssid + '（未连接）' : '未连接');
@@ -108,8 +116,8 @@ function renderNetwork() {
   for (const id of ['scan-wifi', 'connect-wifi', 'save-hotspot', 'confirm-hotspot']) $(id).disabled = locked;
   $('disconnect-wifi').disabled = locked || !wifi.upstream.saved_ssid;
   $('confirm-wifi-disconnect').disabled = locked || !wifi.upstream.saved_ssid;
-  $('wifi-lock').hidden = !locationBusy && !wifi.operation && !app.network_busy;
-  text('wifi-lock', locationBusy ? '请先恢复真实定位，再更改 Wi-Fi。' : '正在调整 Wi-Fi，请稍候。');
+  $('wifi-lock').hidden = !locationBusy && !wifi.operation && !app.network_busy && !app.pairing_busy;
+  text('wifi-lock', locationBusy ? '请先恢复真实定位，再更改 Wi-Fi。' : app.pairing_busy ? '正在配对 iPhone。' : '正在调整 Wi-Fi，请稍候。');
   if (wifi.operation && wifi.operation.kind !== 'hotspot') message('wifi-message', ({ scan: '正在扫描附近网络', connect: '正在连接上游 Wi-Fi', disconnect: '正在断开上游 Wi-Fi' }[wifi.operation.kind] || '正在调整 Wi-Fi') + `，已等待 ${Math.floor(wifi.operation.elapsed_ms / 1000)} 秒`);
   else if (wifi.result && wifi.result.kind !== 'hotspot') message('wifi-message', wifi.result.message, !wifi.result.ok);
   else text('wifi-message', wifi.upstream.connected ? '盒子已连接上游 Wi-Fi。' : '尚未连接上游网络。');
@@ -125,7 +133,7 @@ function renderHotspotReconnect() {
     rememberHotspot(null); message('hotspot-message', '热点设置已保存，当前连接正常。');
     $('hotspot-ssid').value = wifi.ssid;
   }
-  $('hotspot-reconnect').hidden = !pendingHotspot;
+  $('hotspot-reconnect').hidden = !pendingHotspot || data?.link === 'bluetooth';
   if (!pendingHotspot) return;
   text('hotspot-target', pendingHotspot.ssid);
   text('hotspot-reconnect-title', online ? '正在应用热点设置，请重新连接' : '热点已断开，请重新连接');
@@ -168,7 +176,56 @@ function renderHelp() {
   $('help-model').hidden = !phone;
   text('help-ssid', data.wifi.ssid);
   $('help-replace').hidden = !data.app.paired;
+  renderBluetooth();
   renderDeviceBackup();
+}
+function renderBluetooth() {
+  const { bluetooth: bt, link, app, pairing } = data;
+  $('bluetooth-setup').hidden = !bt;
+  if (!helpInitialized) {
+    $('mac-setup').open = !bt || bt.state === 'unavailable';
+    helpInitialized = true;
+  }
+  if (!bt) return;
+  const onBluetooth = link === 'bluetooth', locked = networkLocked();
+  const canScan = ['idle', 'failed'].includes(bt.state);
+  $('bt-classic').hidden = onBluetooth || bt.state === 'unavailable' || bt.state === 'connected';
+  $('bt-open').hidden = onBluetooth || !bt.address;
+  if (bt.address) $('bt-address').href = 'http://' + bt.address + '/admin/help#iphone';
+  $('bt-scan').disabled = locked || !canScan;
+  $('bt-confirm').hidden = bt.state !== 'confirming';
+  $('bt-confirm-code').disabled = locked;
+  text('bt-code', bt.code);
+  const status = {
+    starting: '正在启动蓝牙…', scanning: '正在扫描蓝牙设备…',
+    connecting: '正在接入 iPhone 的个人热点…', confirming: '请核对蓝牙配对码。',
+    connected: '蓝牙已连接。', failed: '蓝牙连接失败，请检查个人热点后重试。',
+    unavailable: '蓝牙不可用，请用备用 Wi-Fi。',
+  };
+  text('bt-status', status[bt.state] || (scannedBluetooth && !bt.devices?.length ? '没有找到设备，请让 iPhone 停在蓝牙设置页再试。' : '蓝牙尚未连接。'));
+  const signature = JSON.stringify([bt.devices, locked]);
+  if (signature !== bluetoothSignature) {
+    bluetoothSignature = signature;
+    $('bt-devices').replaceChildren(...(bt.devices || []).map(device => {
+      const button = node('button', device.name, 'secondary');
+      button.type = 'button'; button.disabled = locked;
+      button.onclick = () => post('/api/bluetooth', { action: 'connect', device: device.id });
+      return button;
+    }));
+  }
+  $('developer-pairing').hidden = !onBluetooth;
+  $('developer-pair').disabled = locked || !pairing;
+  text('developer-pair', app.paired ? '重新配对 iPhone' : '开始开发者配对');
+  const stages = {
+    preparing: '正在开启配对…',
+    waiting: `盒子名称：${pairing?.name}。在 iPhone 的「设置 → 隐私与安全性 → 开发者模式」页面下方找到它，点「配对」，再回此页查看验证码。`,
+    pin: `本次验证码：${pairing?.code}。回到 iPhone 的配对输入框填写。`,
+    saving: '正在保存配对资料…', done: '配对已完成，可以开始定位。',
+    failed: pairing?.message,
+  };
+  const notice = pairing ? stages[pairing.stage] : '暂时无法读取配对状态。';
+  $('developer-status').hidden = !notice;
+  if (notice) message('developer-status', notice, !pairing || pairing.stage === 'failed');
 }
 function renderLocation() {
   const { app, debug, wifi } = data;
@@ -180,7 +237,7 @@ function renderLocation() {
   if (app.operation) message('location-progress', (app.operation.kind === 'restore' ? '正在恢复真实定位' : '正在定位到“' + app.operation.label + '”') + `，已等待 ${Math.floor(app.operation.elapsed_ms / 1000)} 秒`);
   else if (app.result) message('location-progress', app.result.message, !app.result.ok);
   else text('location-progress', '等待操作。');
-  const disabled = !online || posting || !app.paired || !!app.operation || !!wifi.operation || app.network_busy;
+  const disabled = !online || posting || !app.paired || !!app.operation || !!wifi.operation || app.network_busy || app.pairing_busy;
   $('replay-location').disabled = disabled || !app.last_location;
   $('manual-apply').disabled = disabled; $('manual-save').disabled = !online || posting;
   renderEvents();
@@ -238,7 +295,9 @@ function setupNetwork() {
     try {
       confirmedHotspot = hotspotChange($('hotspot-ssid').value, $('hotspot-password').value);
       if (confirmedHotspot.ssid === data.wifi.ssid && !confirmedHotspot.password) { message('hotspot-message', '热点设置没有变化。'); return; }
-      text('hotspot-confirm-text', `修改后请重新连接“${confirmedHotspot.ssid}”${confirmedHotspot.password ? '，并使用新密码' : '，密码保持不变'}。`);
+      text('hotspot-confirm-text', data.link === 'bluetooth'
+        ? `将备用热点改为“${confirmedHotspot.ssid}”。`
+        : `修改后请重新连接“${confirmedHotspot.ssid}”${confirmedHotspot.password ? '，并使用新密码' : '，密码保持不变'}。`);
       $('hotspot-confirm').hidden = false; $('confirm-hotspot').focus();
     } catch (error) { message('hotspot-message', error.message, true); }
   };
@@ -290,7 +349,7 @@ function setupMaps() {
 }
 function setupFavoriteBackup() {
   $('export-favorites').onclick = () => {
-    download({ version: 2, favorites: data.app.favorites.map(storedPlace) }, `移点盒收藏-${dateName()}.json`);
+    download({ version: 2, favorites: data.app.favorites.map(storedPlace) }, `MapPin-Box收藏-${dateName()}.json`);
     message('backup-message', '收藏已导出。');
   };
   $('import-favorites').onclick = () => $('import-file').click();
@@ -305,7 +364,7 @@ function setupFavoriteBackup() {
 
 async function exportDeviceBackup() {
   if (deviceBackup) {
-    download(deviceBackup, `移点盒完整备份-${dateName()}.waypinbackup`);
+    download(deviceBackup, `MapPin-Box完整备份-${dateName()}.mappinbackup`);
     deviceBackup = null;
     message('device-backup-message', '备份文件已提交下载。');
     renderDeviceBackup();
@@ -356,11 +415,16 @@ $('export-diagnostics').onclick = () => {
   download({ version: 1, captured_at: new Date().toISOString(), preview: !!app.preview, online,
     device, app: { version: app.version, uptime: app.uptime, mode: app.mode, paired: app.paired, maps_configured: app.maps_configured, map_provider: app.map_provider, operation: app.operation, restore_queued: app.restore_queued, network_busy: app.network_busy, button: app.button, result: app.result, favorites_count: app.favorites.length, recent_count: app.recent.length },
     wifi: { ssid: wifi.ssid, address: wifi.address, channel: wifi.channel, client_count: wifi.client_count, local_only: wifi.local_only, upstream: wifi.upstream }, events: debug.events
-  }, `移点盒诊断-${dateName()}.json`);
+  }, `MapPin-Box诊断-${dateName()}.json`);
   toast('诊断已导出，不含配对资料、地图凭证或 Wi-Fi 密码。');
 };
 ({ network: setupNetwork, maps: setupMaps, location: setupLocation }[page])?.();
-if (page === 'help') $('export-device-backup').onclick = exportDeviceBackup;
+if (page === 'help') {
+  $('export-device-backup').onclick = exportDeviceBackup;
+  $('bt-scan').onclick = () => { scannedBluetooth = true; return post('/api/bluetooth', { action: 'scan' }); };
+  $('bt-confirm-code').onclick = () => post('/api/bluetooth', { action: 'confirm', code: Number(data.bluetooth.code) });
+  $('developer-pair').onclick = () => post('/api/bluetooth/pairing');
+}
 for (const icon of document.querySelectorAll('[data-lucide]')) if (icons[icon.dataset.lucide]) icon.innerHTML = icons[icon.dataset.lucide];
 $('admin-page-select').value = location.pathname;
 $('admin-page-select').onchange = event => location.assign(event.target.value);

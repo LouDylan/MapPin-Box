@@ -2,8 +2,7 @@ use esp_idf_svc::sys;
 use sha2::{Digest, Sha256};
 use std::error::Error;
 
-// The on-disk marker also identifies backups made by pre-Waypin firmware.
-const MAGIC: &[u8; 8] = b"I4BKUP01";
+const MAGIC: &[u8; 8] = b"MAPBKUP1";
 const USERDATA_SIZE: usize = 0x20000;
 
 pub fn capture() -> Result<Vec<u8>, Box<dyn Error>> {

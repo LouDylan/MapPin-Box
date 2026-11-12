@@ -28,7 +28,7 @@ function toast(message, error = false) {
   text('toast', message); $('toast').dataset.error = String(error); $('toast').hidden = false;
   toastTimer = setTimeout(() => { $('toast').hidden = true; }, error ? 7000 : 4000);
 }
-function busy() { return resolving || postingSet || !!state?.operation || !!state?.network_busy; }
+function busy() { return resolving || postingSet || !!state?.operation || !!state?.network_busy || !!state?.pairing_busy; }
 function ready() { return online && !!state?.paired; }
 
 function schedulePoll() {
@@ -64,13 +64,14 @@ function render() {
   $('connection').dataset.online = String(online);
   $('preview-label').hidden = !state?.preview; $('preview-notice').hidden = !state?.preview;
   $('offline-banner').hidden = loading || (online && state?.paired);
-  text('offline-text', online ? '先接入 iPhone，再使用定位。' : '暂时无法连接盒子，请检查供电和 Wi-Fi。');
+  text('offline-text', online ? '先接入 iPhone，再使用定位。' : '暂时无法连接盒子，请检查供电和连接。');
   text('reconnect', online ? '接入 iPhone' : '重新连接');
   const op = online ? state?.operation : null;
   let mode = 'unknown', title = '定位状态待确认', label = '待确认', caption = '';
   if (loading) { title = '正在连接'; label = '读取中'; caption = ''; }
   else if (!online) { caption = '请重新连接盒子，再查看定位状态。'; }
   else if (!state.paired) { title = '尚未接入 iPhone'; label = '未接入'; caption = ''; }
+  else if (state.pairing_busy) { mode = 'working'; title = '正在配对 iPhone'; label = '配对中'; caption = ''; }
   else if (state.network_busy) { mode = 'working'; title = '正在调整 Wi-Fi'; label = '维护中'; caption = ''; }
   else if (op) { mode = 'working'; title = op.kind === 'restore' ? '正在恢复真实定位' : '正在设置：' + op.label; label = op.phase === 'queued' ? '已排队' : '执行中'; caption = state.restore_queued ? '当前操作结束后恢复真实定位。' : state.preview ? '正在演示执行流程，不会修改手机位置。' : '保持 iPhone 解锁并与盒子连接。'; }
   else if (state.mode === 'simulating' && state.location) { mode = 'simulating'; title = state.location.name; label = '已设置'; caption = state.location.address || ''; }
@@ -86,7 +87,7 @@ function render() {
   $('error-panel').hidden = !failed;
   if (failed) { text('error-message', state.result.message); text('error-detail', state.result.detail || '请保持 iPhone 解锁并与盒子连接后重试。'); }
   const restoring = state?.restore_queued || (op && op.kind === 'restore') || postingRestore;
-  $('restore').disabled = !ready() || !!restoring || !!state?.network_busy;
+  $('restore').disabled = !ready() || !!restoring || !!state?.network_busy || !!state?.pairing_busy;
   text('restore-label', state?.restore_queued ? '恢复已排队' : restoring ? '正在恢复…' : '恢复真实定位');
 
   text('favorite-count', String(state?.favorites.length || 0));
@@ -147,7 +148,7 @@ function renderLists() {
   $('recent-list').replaceChildren(...recentNodes);
 }
 async function gps(kind, place) {
-  if (!ready()) { toast('请先连接盒子 Wi-Fi，并完成 iPhone 配对', true); return false; }
+  if (!ready()) { toast('请先连接盒子并完成 iPhone 配对', true); return false; }
   if (kind === 'set' && busy()) { toast('正在执行上一项操作，请稍候'); return false; }
   if (kind === 'restore') postingRestore = true; else postingSet = true;
   render();

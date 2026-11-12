@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>USB 定位测试 · Waypin Box</title>
+<title>USB 定位测试 · MapPin-Box</title>
 <style>
   :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
   body { max-width: 32rem; margin: 2rem auto; padding: 0 1rem; }
@@ -23,7 +23,7 @@
       output.textContent = '正在连接定位服务…';
       try {
         const response = await fetch(button.dataset.path, {
-          method: 'POST', headers: {'X-Waypin-Usb-Test': '1'}
+          method: 'POST', headers: {'X-MapPin-Usb-Test': '1'}
         });
         output.textContent = await response.text();
       } catch (error) {

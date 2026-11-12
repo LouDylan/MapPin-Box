@@ -6,6 +6,29 @@ pub mod indicator;
 pub mod maps;
 pub use maps::{MapChange, MapConfig, MapCredentials, MapProvider, MapRegion};
 
+use std::net::{IpAddr, Ipv4Addr};
+
+pub const HOTSPOT_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 71, 1);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ControlLink {
+    Wifi,
+    Bluetooth,
+}
+
+pub fn control_link(
+    local: IpAddr,
+    peer: IpAddr,
+    pan: Option<(Ipv4Addr, Ipv4Addr)>,
+) -> Option<ControlLink> {
+    let (local, peer) = (local.to_canonical(), peer.to_canonical());
+    if pan.is_some_and(|(host, phone)| local == IpAddr::V4(host) && peer == IpAddr::V4(phone)) {
+        return Some(ControlLink::Bluetooth);
+    }
+    (local == IpAddr::V4(HOTSPOT_IP) && peer != local && control_client(peer))
+        .then_some(ControlLink::Wifi)
+}
+
 /// Keep control on the accessory AP when the upstream station is enabled.
 pub fn control_client(address: std::net::IpAddr) -> bool {
     match address.to_canonical() {
@@ -388,6 +411,37 @@ mod tests {
     }
 
     #[test]
+    fn control_requires_the_matching_local_interface_and_pan_gateway() {
+        let pan = Some((
+            "172.20.10.3".parse().unwrap(),
+            "172.20.10.1".parse().unwrap(),
+        ));
+        let link = |local: &str, peer: &str| {
+            control_link(local.parse().unwrap(), peer.parse().unwrap(), pan)
+        };
+        assert_eq!(
+            link("::ffff:172.20.10.3", "::ffff:172.20.10.1"),
+            Some(ControlLink::Bluetooth)
+        );
+        assert_eq!(
+            link("192.168.71.1", "192.168.71.20"),
+            Some(ControlLink::Wifi)
+        );
+        assert_eq!(link("192.168.71.88", "192.168.71.20"), None);
+        assert_eq!(link("172.20.10.3", "172.20.10.4"), None);
+        assert_eq!(link("172.20.10.3", "192.168.71.20"), None);
+        assert_eq!(link("192.168.71.1", "192.168.71.1"), None);
+        assert_eq!(
+            control_link(
+                "172.20.10.3".parse().unwrap(),
+                "172.20.10.1".parse().unwrap(),
+                None
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn wifi_credentials_measure_utf8_bytes_and_preserve_password_whitespace() {
         let value = WifiCredentials {
             ssid: "家".repeat(10),
@@ -433,7 +487,7 @@ mod tests {
     #[test]
     fn hotspot_rename_preserves_the_password_for_null_or_empty_input() {
         let current = HotspotConfig {
-            ssid: "Waypin".into(),
+            ssid: "MapPin".into(),
             password: " old pass ".into(),
         };
         for password in [None, Some(String::new())] {

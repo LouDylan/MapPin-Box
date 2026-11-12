@@ -1,6 +1,6 @@
-Waypin Box · 移点盒
+MapPin-Box
 GPL-3.0-only
-https://github.com/LouDylan/waypin-box
+https://github.com/LouDylan/MapPin-Box
 
 Includes embedded modules from Enigma:
 https://github.com/bruce-shi/enigma/tree/b50eb62b15f82ca42ebd427dcd7506e427a937ca

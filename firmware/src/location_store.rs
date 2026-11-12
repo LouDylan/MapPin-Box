@@ -1,7 +1,7 @@
 use std::{error::Error, net::IpAddr};
 
 use esp_idf_svc::nvs::{EspKeyValueStorage, EspNvs, NvsCustom};
-use waypin_box_model::{Backup, Favorites, Place, record_recent};
+use mappin_box_model::{Backup, Favorites, Place, record_recent};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::persistent_storage::PersistentNvsPartition;

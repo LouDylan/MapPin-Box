@@ -2,8 +2,9 @@ use crate::{
     backend::EspIdfBackend, iphone, location_store::LocationStore, map_settings::MapSettings,
     persistent_storage::PersistentNvsPartition,
 };
-use waypin_box_model::{
-    Backup, MAX_FAVORITES, MAX_NAME, MAX_RECENT, MapChange, MapConfig, Place, ReplayCache,
+use mappin_box_model::{
+    Backup, MAX_FAVORITES, MAX_NAME, MAX_RECENT, MapChange, MapConfig, MapCredentials, Place,
+    ReplayCache,
     backup::ExportStatus,
     button::Action,
     indicator::{Pattern, Status},
@@ -23,6 +24,17 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+#[derive(Debug)]
+pub(crate) struct PairingBusy;
+
+impl std::fmt::Display for PairingBusy {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.write_str("请先恢复真实定位并等待操作完成，再接入手机")
+    }
+}
+
+impl Error for PairingBusy {}
 
 #[derive(Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -75,6 +87,7 @@ struct State {
     result: Option<Outcome>,
     led_notice: Option<(Pattern, Instant)>,
     network_busy: bool,
+    pairing_busy: bool,
     button: Option<Value>,
     button_id: u32,
     events: VecDeque<Value>,
@@ -95,6 +108,7 @@ impl Default for State {
             result: None,
             led_notice: None,
             network_busy: false,
+            pairing_busy: false,
             button: None,
             button_id: 0,
             events: VecDeque::new(),
@@ -104,6 +118,13 @@ impl Default for State {
 }
 
 impl State {
+    fn check_phone_idle(&self) -> std::result::Result<(), PairingBusy> {
+        if self.operation.is_some() || self.network_busy || self.mode == Mode::Simulating {
+            return Err(PairingBusy);
+        }
+        Ok(())
+    }
+
     fn event(&mut self, level: &str, message: &str) {
         if level == "error" {
             self.led_notice = Some((Pattern::Failed, Instant::now()));
@@ -140,18 +161,22 @@ impl App {
     pub fn start(partition: PersistentNvsPartition) -> Result<Arc<Self>> {
         let backend = EspIdfBackend::new(partition.clone())?;
         let pairing = iphone::pairing_storage(partition.clone())?;
-        let paired = iphone::has_pairing_record(&pairing)?;
+        let (paired, phone) = iphone::SavedPairing::inspect(&pairing)?;
+        log::info!(
+            "MAPPIN_DEVELOPER_PAIRING {}",
+            if paired { "saved" } else { "not configured" }
+        );
         let maps = Mutex::new(MapSettings::new(partition.clone())?);
         let data = Arc::new(Mutex::new(LocationStore::new(partition)?));
         let state = Arc::new(Mutex::new(State {
-            phone: iphone::configured_phone(&pairing)?,
+            phone,
             ..Default::default()
         }));
         let (commands, receiver) = sync_channel(2);
         let worker_state = state.clone();
         let worker_data = data.clone();
         std::thread::Builder::new()
-            .name("waypin-actions".into())
+            .name("mappin-actions".into())
             .stack_size(16 * 1024)
             .spawn(move || run_worker(backend, receiver, worker_state, worker_data))?;
         Ok(Arc::new(Self {
@@ -167,15 +192,6 @@ impl App {
     }
 
     fn is_paired(&self) -> bool {
-        if !self.paired.load(Ordering::Acquire) {
-            let available = self
-                .pairing
-                .lock()
-                .ok()
-                .and_then(|storage| iphone::has_pairing_record(&storage).ok())
-                .unwrap_or(false);
-            self.paired.store(available, Ordering::Release);
-        }
         self.paired.load(Ordering::Acquire)
     }
 
@@ -186,7 +202,7 @@ impl App {
         now: Instant,
     ) -> Option<(Pattern, Option<Instant>)> {
         let state = self.state.try_lock().ok()?;
-        let working = state.operation.is_some() || state.network_busy;
+        let working = state.operation.is_some() || state.network_busy || state.pairing_busy;
         if !working
             && let Some((notice, since)) = state.led_notice
             && notice.color(now.saturating_duration_since(since)).is_some()
@@ -214,7 +230,7 @@ impl App {
             "paired": paired, "phone": state.phone, "maps_configured": maps_configured, "map_provider": maps.provider, "configured_providers": maps.available(), "regional_providers": maps.regional_providers(), "uptime": self.started.elapsed().as_secs(), "mode": state.mode,
             "location": state.location, "operation": state.operation.as_ref().map(Operation::json),
             "restore_queued": state.queued_restore.is_some(), "result": state.result,
-            "network_busy": state.network_busy, "button": state.button,
+            "network_busy": state.network_busy, "pairing_busy": state.pairing_busy, "button": state.button,
             "last_location": data.recent.first(),
             "favorites": data.favorites.items, "recent": data.recent,
             "limits": {"favorites": MAX_FAVORITES, "recent": MAX_RECENT, "name": MAX_NAME}}),
@@ -229,7 +245,7 @@ impl App {
         // The HTTP server serializes map and favorite writes. Holding state also
         // excludes serial pairing, location jobs and Wi-Fi configuration changes.
         let state = self.state.lock().map_err(|_| "状态暂不可用")?;
-        if state.operation.is_some() || state.network_busy {
+        if state.operation.is_some() || state.network_busy || state.pairing_busy {
             return Err("请等当前操作结束后再导出备份".into());
         }
         crate::device_backup::capture()
@@ -244,17 +260,64 @@ impl App {
         Ok(())
     }
 
-    pub fn import_pairing(&self, bytes: &[u8]) -> Result<()> {
+    pub fn seed_amap(&self, credentials: MapCredentials) -> Result<bool> {
+        // Serial writes must not race the raw userdata backup.
         let mut state = self.state.lock().map_err(|_| "状态暂不可用")?;
-        if state.operation.is_some() || state.network_busy || state.mode == Mode::Simulating {
-            return Err("请先恢复真实定位并等待操作完成，再更换手机".into());
+        let written = self
+            .maps
+            .lock()
+            .map_err(|_| "地图配置暂不可用")?
+            .seed_amap(credentials)?;
+        if written {
+            state.revision += 1;
         }
-        let profile = iphone::validate_pairing_record(bytes)?;
+        Ok(written)
+    }
+
+    pub fn import_pairing(&self, bytes: &[u8]) -> Result<()> {
+        let pairing = iphone::SavedPairing::serial(bytes)?;
+        self.replace_pairing(pairing, false)
+    }
+
+    #[cfg(esp32)]
+    pub fn can_change_phone(&self) -> Result<()> {
+        let state = self.state.lock().map_err(|_| "状态暂不可用")?;
+        if state.pairing_busy {
+            return Err("正在配对 iPhone，请稍候".into());
+        }
+        Ok(state.check_phone_idle()?)
+    }
+
+    #[cfg(esp32)]
+    pub fn begin_pairing(&self) -> Result<()> {
+        let mut state = self.state.lock().map_err(|_| "状态暂不可用")?;
+        if state.pairing_busy {
+            return Err("正在配对 iPhone，请稍候".into());
+        }
+        state.check_phone_idle()?;
+        state.pairing_busy = true;
+        state.revision += 1;
+        Ok(())
+    }
+
+    #[cfg(esp32)]
+    pub fn end_pairing(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.pairing_busy = false;
+        state.revision += 1;
+    }
+
+    pub fn replace_pairing(&self, record: iphone::SavedPairing, native: bool) -> Result<()> {
+        let mut state = self.state.lock().map_err(|_| "状态暂不可用")?;
+        if state.pairing_busy != native {
+            return Err(PairingBusy.into());
+        }
+        state.check_phone_idle()?;
         let pairing = self.pairing.lock().map_err(|_| "配对资料暂不可用")?;
         let mut data = self.data.lock().map_err(|_| "地点暂不可用")?;
         data.forget_phone()?;
-        iphone::import_pairing_record(&pairing, bytes)?;
-        state.phone = profile;
+        record.save(&pairing)?;
+        state.phone = record.phone;
         state.mode = Mode::Unknown;
         state.location = None;
         state.result = None;
@@ -274,12 +337,15 @@ impl App {
     }
 
     pub fn restore(&self, address: Option<IpAddr>) -> Result<u32> {
-        let address = address.or_else(|| self.data.lock().ok()?.phone_ip);
+        let address = address.or_else(|| {
+            let last = self.data.lock().ok()?.phone_ip;
+            self.default_address(last)
+        });
         self.submit(Kind::Restore, address, None, false)
     }
 
-    pub fn replay_last(&self) -> Result<u32> {
-        let (place, address) = {
+    pub fn replay_last(&self, address: Option<IpAddr>) -> Result<u32> {
+        let (place, last) = {
             let data = self.data.lock().map_err(|_| "地点暂不可用")?;
             (
                 data.recent
@@ -294,7 +360,34 @@ impl App {
             let now = state.started.elapsed().as_secs();
             state.replay_cache.resolve(place, now)?
         };
-        self.submit(Kind::Set, address, Some(place), true)
+        self.submit(
+            Kind::Set,
+            address.or_else(|| self.default_address(last)),
+            Some(place),
+            true,
+        )
+    }
+
+    fn default_address(&self, last: Option<IpAddr>) -> Option<IpAddr> {
+        #[cfg(esp32)]
+        {
+            let bluetooth = crate::bluetooth::peer();
+            let wifi = last.filter(|address| mappin_box_model::control_client(*address));
+            // Restore on the original path when it still holds the simulation.
+            if self
+                .state
+                .lock()
+                .is_ok_and(|state| state.mode == Mode::Simulating)
+            {
+                return last
+                    .filter(|address| Some(*address) == bluetooth)
+                    .or(wifi)
+                    .or(bluetooth);
+            }
+            bluetooth.or(wifi)
+        }
+        #[cfg(not(esp32))]
+        last
     }
 
     pub fn expire_cached_location(&self) {
@@ -306,7 +399,7 @@ impl App {
     pub fn button_action(&self, action: Action) {
         let (kind, result) = match action {
             Action::Restore => ("restore", self.restore(None)),
-            Action::Replay => ("replay", self.replay_last()),
+            Action::Replay => ("replay", self.replay_last(None)),
         };
         let mut state = self.state.lock().unwrap();
         state.button_id += 1;
@@ -329,6 +422,9 @@ impl App {
 
     pub fn begin_network_change(&self) -> Result<()> {
         let mut state = self.state.lock().map_err(|_| "状态暂不可用")?;
+        if state.pairing_busy {
+            return Err("正在配对 iPhone，请稍候".into());
+        }
         if state.network_busy {
             return Err("已有 Wi-Fi 操作正在执行，请稍候".into());
         }
@@ -369,9 +465,12 @@ impl App {
         replay: bool,
     ) -> Result<u32> {
         if !self.is_paired() {
-            return Err("请先把 iPhone 和盒子接回 Mac，导入配对资料".into());
+            return Err("请先在「设置 → 使用帮助」接入 iPhone".into());
         }
         let mut state = self.state.lock().map_err(|_| "状态暂不可用")?;
+        if state.pairing_busy {
+            return Err("正在配对 iPhone，完成后再操作定位".into());
+        }
         if state.network_busy {
             return Err("正在调整 Wi-Fi，完成后再操作定位".into());
         }
@@ -535,7 +634,7 @@ fn complete(job: &Job, result: Result<()>, data: &Mutex<LocationStore>) -> Outco
     let id = job.operation.id;
     if let Err(error) = result {
         let detail = error.to_string();
-        log::warn!("WAYPIN_ACTION_ERROR {id}: {detail}");
+        log::warn!("MAPPIN_ACTION_ERROR {id}: {detail}");
         return Outcome {
             id,
             ok: false,
@@ -559,7 +658,7 @@ fn complete(job: &Job, result: Result<()>, data: &Mutex<LocationStore>) -> Outco
             message.push_str("，但最近记录未能保存");
         }
     }
-    log::info!("WAYPIN_ACTION_OK {id}: {message}");
+    log::info!("MAPPIN_ACTION_OK {id}: {message}");
     Outcome {
         id,
         ok: true,
@@ -574,17 +673,17 @@ fn explain_error(detail: &str) -> &str {
         return detail;
     }
     if error.contains("pairing is missing") {
-        return "缺少手机配对资料，请接回 Mac 重新导入";
+        return "缺少手机配对资料，请在「设置 → 使用帮助」接入 iPhone";
     }
     if error.contains("timeout") || error.contains("timed out") {
-        return "连接 iPhone 超时。请保持手机解锁，确认仍连接盒子 Wi-Fi 后重试";
+        return "连接 iPhone 超时。请保持手机解锁，确认蓝牙或备用 Wi-Fi 仍连通";
     }
     if error.contains("verify") || error.contains("signature") || error.contains("pairing") {
-        return "未能验证 iPhone 配对。保持手机解锁后重试；仍失败时接 Mac 重新准备服务";
+        return "未能验证 iPhone 配对。请解锁后重试，或在「使用帮助」重新配对";
     }
     if error.contains("developer") || error.contains("rsd") || error.contains("location simulation")
     {
         return "未能打开 iPhone 定位服务。解锁后重试；仍失败时接 Mac 运行“准备iPhone定位服务”";
     }
-    "未能完成定位操作。请保持 iPhone 解锁并连接盒子 Wi-Fi，然后重试"
+    "未能完成定位操作。请保持 iPhone 解锁并连接盒子，然后重试"
 }

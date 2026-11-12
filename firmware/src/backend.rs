@@ -1,7 +1,7 @@
 use crate::{iphone, persistent_storage::PersistentNvsPartition};
 use enigma_embedded_core::Location;
-use waypin_box_model::Place;
 use std::{error::Error, net::IpAddr};
+use mappin_box_model::Place;
 
 pub struct EspIdfBackend {
     storage: iphone::PairingStorage,
@@ -34,7 +34,7 @@ impl EspIdfBackend {
         if self.address != Some(address) {
             self.controller.take();
             self.address = Some(address);
-            log::info!("iPhone selected by HTTP client address: {address}");
+            log::info!("iPhone location endpoint: {address}");
         }
     }
 

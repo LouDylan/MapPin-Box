@@ -1,11 +1,15 @@
-//! Waypin Box firmware for the ESP32-S3 N16R8.
+//! MapPin-Box firmware for ESP32-S3 N16R8 and Waveshare ESP32-WROVER-E.
 
 mod admin_pages;
 mod app;
 mod backend;
+mod bluetooth;
 mod device_backup;
 mod diagnostics;
 mod iphone;
+mod iphone_session;
+
+use esp_idf_svc::sys as sdk;
 mod location_store;
 mod map_settings;
 #[path = "../../vendor/enigma/apps/embedded/platforms/esp-idf/src/persistent_storage.rs"]
@@ -16,6 +20,8 @@ mod wifi_access;
 mod wifi_control;
 
 mod portal;
+#[cfg(esp32)]
+mod wireless_pairing;
 
 use esp_idf_svc::{
     hal::{
@@ -27,13 +33,13 @@ use esp_idf_svc::{
     io::vfs::MountedEventfs,
     nvs::EspDefaultNvsPartition,
 };
-use waypin_box_model::{backup::BackupExport, button::Button, indicator::Pattern};
 use status_led::StatusLed;
 use std::{
     error::Error,
     sync::{Arc, Mutex},
     time::Instant,
 };
+use mappin_box_model::{backup::BackupExport, button::Button, indicator::Pattern};
 
 fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
     esp_idf_svc::sys::link_patches();
@@ -46,17 +52,28 @@ fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
     }
     log::set_max_level(log::LevelFilter::Info);
     let peripherals = Peripherals::take()?;
-    // The original LED demo configures its WS2812 on GPIO48 on these boards.
-    *led = StatusLed::new(peripherals.pins.gpio48)
-        .inspect_err(|error| log::warn!("WAYPIN_LED_DISABLED: {error}"))
+    #[cfg(esp32s3)]
+    let (pixel, tx, rx) = (
+        peripherals.pins.gpio48,
+        peripherals.pins.gpio43,
+        peripherals.pins.gpio44,
+    );
+    #[cfg(esp32)]
+    let (pixel, tx, rx) = (
+        peripherals.pins.gpio27,
+        peripherals.pins.gpio1,
+        peripherals.pins.gpio3,
+    );
+    *led = StatusLed::new(pixel)
+        .inspect_err(|error| log::warn!("MAPPIN_LED_DISABLED: {error}"))
         .ok();
     StatusLed::show(led, Pattern::Starting, None, Instant::now());
     let _eventfs = MountedEventfs::mount(5)?;
     let button = PinDriver::input(peripherals.pins.gpio0, Pull::Up)?;
     let uart = UartDriver::new(
         peripherals.uart0,
-        peripherals.pins.gpio43,
-        peripherals.pins.gpio44,
+        tx,
+        rx,
         Option::<AnyIOPin>::None,
         Option::<AnyIOPin>::None,
         &Config::default().rx_fifo_size(4096),
@@ -70,7 +87,9 @@ fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
     let network = wifi_control::WifiControl::start(wifi, app.clone())?;
     let backup = Arc::new(Mutex::new(BackupExport::default()));
     let _server = portal::start(app.clone(), network.clone(), backup.clone())?;
-    log::info!("WAYPIN_BOX_READY: {} | http://{}", label, address);
+    #[cfg(esp32)]
+    bluetooth::start();
+    log::info!("MAPPIN_BOX_READY: {} | http://{}", label, address);
     log::info!(
         "BOOT: short press restores real location; hold 3 seconds to replay the last successful location"
     );
@@ -78,6 +97,8 @@ fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
     let button_clock = Instant::now();
     let mut cache_clock = Instant::now();
     loop {
+        #[cfg(esp32)]
+        wireless_pairing::commit_pending(&app);
         if cache_clock.elapsed().as_secs() >= 60 {
             app.expire_cached_location();
             cache_clock = Instant::now();
@@ -99,7 +120,8 @@ fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
         }
         if led.is_some()
             && let Some(connected) = network.has_hotspot_client()
-            && let Some((pattern, since)) = app.led_pattern(connected, export, now)
+            && let Some((pattern, since)) =
+                app.led_pattern(connected || bluetooth::endpoint().is_some(), export, now)
         {
             StatusLed::show(led, pattern, since, now);
         }
@@ -110,7 +132,7 @@ fn run(led: &mut Option<StatusLed>) -> Result<(), Box<dyn Error>> {
 fn main() {
     let mut led = None;
     if let Err(error) = run(&mut led) {
-        log::error!("WAYPIN_BOX_STARTUP_ERROR: {error}");
+        log::error!("MAPPIN_BOX_STARTUP_ERROR: {error}");
         loop {
             StatusLed::show(&mut led, Pattern::StartupFailed, None, Instant::now());
             FreeRtos::delay_ms(50);

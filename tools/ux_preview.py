@@ -6,11 +6,13 @@ import queue
 import re
 import threading
 import time
+import tomllib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1] / 'firmware' / 'src'
+VERSION = tomllib.loads((ROOT.parent / 'Cargo.toml').read_text())['package']['version']
 PREVIEW_DATA = ROOT.parents[1] / '.private' / 'preview'
 SAVED = PREVIEW_DATA / 'favorites.json'
 MAP_FILE = PREVIEW_DATA / 'maps.json'
@@ -117,7 +119,7 @@ try:
 except (FileNotFoundError, ValueError, KeyError, TypeError):
     pass
 
-STATE = dict(preview=True, boot_id=int(time.time()), version='0.12.0', revision=1, paired=True,
+STATE = dict(preview=True, boot_id=int(time.time()), version=VERSION, revision=1, paired=True,
              maps_configured=configured(MAP_CONFIG['provider']), map_provider=MAP_CONFIG['provider'], configured_providers={p:configured(p) for p in PROVIDERS},
              network_busy=False, button=None, phone=dict(name='示例 iPhone',product_type='iPhone15,3',product_version='27.0.1'),
              mode='real', location=None, operation=None, restore_queued=False, result=None,
@@ -128,7 +130,7 @@ NEXT_JOB = 1
 NEXT_FAVORITE = max((p['id'] for p in PLACES), default=0)+1
 
 
-WIFI = dict(ssid='Waypin-DEMO', address='192.168.71.1', channel=6, client_count=1,
+WIFI = dict(ssid='MapPin-DEMO', address='192.168.71.1', channel=6, client_count=1,
             clients=[dict(index=1,id='12:34:56',rssi=-43)], local_only=True,
             upstream=dict(connected=False,saved_ssid=None,address=None,dns=None),
             operation=None,result=None,networks=[])
@@ -399,5 +401,5 @@ if __name__ == '__main__':
     parser.add_argument('--unpaired',action='store_true')
     args=parser.parse_args()
     if args.unpaired: STATE.update(paired=False, phone=None, mode='unknown')
-    print(f'Waypin Box 网页预览 http://127.0.0.1:{args.port}/',flush=True)
+    print(f'MapPin-Box 网页预览 http://127.0.0.1:{args.port}/',flush=True)
     ThreadingHTTPServer(('127.0.0.1',args.port),Handler).serve_forever()

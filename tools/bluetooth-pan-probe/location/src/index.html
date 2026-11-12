@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MapPin-Box</title>
+<style>
+  :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+  body { max-width: 28rem; margin: 2rem auto; padding: 0 1.25rem; }
+  h1 { font-size: 1.5rem; }
+  label, output { display: block; margin: 1rem 0; }
+  input { display: block; box-sizing: border-box; width: 100%; margin-top: .3rem; }
+  input, button { font: inherit; padding: .65rem .8rem; }
+  button { margin: .25rem .5rem .25rem 0; }
+  output { overflow-wrap: anywhere; white-space: pre-line; }
+</style>
+<h1>MapPin-Box</h1>
+<section id="setup" hidden>
+  <form id="network" autocomplete="off">
+    <label>平时使用的 2.4 GHz Wi-Fi 名称<input id="ssid" required spellcheck="false" autocapitalize="none"></label>
+    <label>Wi-Fi 密码<input id="password" type="password" autocomplete="off"></label>
+    <button type="submit">让盒子加入 Wi-Fi</button>
+  </form>
+  <output id="network-status" aria-live="polite"></output>
+  <button id="pair" type="button" disabled>开始配对</button>
+  <output id="pair-status" aria-live="polite"></output>
+  <p id="pair-instructions" hidden></p>
+</section>
+<section id="controls" hidden>
+  <button type="button" data-path="/set">定位到上海</button>
+  <button type="button" data-path="/restore">恢复真实定位</button>
+  <output id="location-status" aria-live="polite"></output>
+</section>
+<script>
+  const setup = document.querySelector('#setup');
+  const controls = document.querySelector('#controls');
+  const form = document.querySelector('#network');
+  const pair = document.querySelector('#pair');
+  const pairStatus = document.querySelector('#pair-status');
+  const instructions = document.querySelector('#pair-instructions');
+  const networkStatus = document.querySelector('#network-status');
+  const output = document.querySelector('#location-status');
+  const buttons = document.querySelectorAll('button[data-path]');
+  const headers = {'X-MapPin-Bt-Test': '1'};
+  const netText = {
+    idle: '', joining: '盒子正在连接 Wi-Fi…', connected: '盒子已加入 Wi-Fi。',
+    failed: '未能加入。请检查网络名称、密码和 2.4 GHz 支持。'
+  };
+
+  function showNetwork(info) {
+    networkStatus.textContent = netText[info.state] || '';
+    form.querySelector('button').disabled = ['joining', 'connected'].includes(info.state);
+  }
+
+  async function updatePairStatus(usingSetup, ready = true) {
+    const status = await fetch('/pair-status', {cache: 'no-store'});
+    if (!status.ok) return;
+    const message = await status.text();
+    const pairing = message.startsWith('盒子名称：');
+    if (pairStatus.textContent !== message) pairStatus.textContent = message;
+    pair.disabled = !ready || pairing || message.startsWith('正在');
+    pair.textContent = message.startsWith('已保存') || message.startsWith('开发者配对已完成') ? '重新配对' : '开始配对';
+    instructions.hidden = !pairing;
+    if (!pairing) return;
+    if (message.includes('本次验证码：')) {
+      instructions.textContent = '回到 iPhone 的配对输入框，输入本次验证码。';
+      return;
+    }
+    const select = '在 iPhone 的「设置 → 隐私与安全性 → 开发者模式」页面下方选择该盒子，点「配对」。';
+    instructions.textContent = usingSetup
+      ? '用另一台设备保留此页，iPhone 接入盒子刚加入的 Wi-Fi。' + select
+      : select + '再回此页查看验证码。';
+  }
+
+  async function updateSetup() {
+    try {
+      const response = await fetch('/pair-network', {cache: 'no-store'});
+      if (response.status === 403) {
+        controls.hidden = false;
+        setup.hidden = false;
+        form.hidden = true;
+        networkStatus.hidden = true;
+        await updatePairStatus(false);
+        return;
+      }
+      if (!response.ok) return;
+      setup.hidden = false;
+      controls.hidden = true;
+      const info = await response.json();
+      showNetwork(info);
+      await updatePairStatus(true, info.state === 'connected');
+    } catch {}
+  }
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const encoder = new TextEncoder();
+    const ssid = encoder.encode(document.querySelector('#ssid').value);
+    const password = document.querySelector('#password');
+    const key = encoder.encode(password.value);
+    if (!ssid.length || ssid.length > 32 || (key.length && (key.length < 8 || key.length > 63))) {
+      networkStatus.textContent = '请检查 Wi-Fi 名称和密码长度。';
+      return;
+    }
+    const body = new Uint8Array(1 + ssid.length + key.length);
+    body[0] = ssid.length;
+    body.set(ssid, 1);
+    body.set(key, 1 + ssid.length);
+    form.querySelector('button').disabled = true;
+    try {
+      const response = await fetch('/pair-network', {method: 'POST', headers, body});
+      if (!response.ok) throw new Error('join');
+      password.value = '';
+      showNetwork(await response.json());
+    } catch {
+      form.querySelector('button').disabled = false;
+      networkStatus.textContent = '没有提交成功，请确认手机仍在盒子热点上。';
+    }
+  });
+
+  pair.addEventListener('click', async () => {
+    pair.disabled = true;
+    try {
+      const response = await fetch('/pair', {method: 'POST', headers});
+      pairStatus.textContent = await response.text();
+      await updateSetup();
+    } catch {
+      pairStatus.textContent = '连接中断，请重试。';
+    }
+  });
+  updateSetup();
+  setInterval(() => { if (!document.hidden) updateSetup(); }, 1500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) updateSetup(); });
+
+  for (const button of buttons) {
+    button.addEventListener('click', async () => {
+      for (const item of buttons) item.disabled = true;
+      output.textContent = '正在连接定位服务…';
+      try {
+        const response = await fetch(button.dataset.path, {method: 'POST', headers});
+        output.textContent = await response.text();
+      } catch {
+        output.textContent = '蓝牙连接中断，请重新连接盒子后重试。';
+      } finally {
+        for (const item of buttons) item.disabled = false;
+      }
+    });
+  }
+</script>
+</html>

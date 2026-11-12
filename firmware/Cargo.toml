@@ -1,6 +1,6 @@
 [package]
-name = "waypin-box"
-version = "0.12.0"
+name = "mappin-box"
+version = "0.14.0"
 edition = "2024"
 license = "GPL-3.0-only"
 publish = false
@@ -11,23 +11,27 @@ members = ["model"]
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "espressif/mdns", version = "1.2" }
 
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["components/mappin_bt"]
+
 [profile.release]
 opt-level = "z"
 lto = false
 
 [dependencies]
 embedded-svc = "0.29"
-waypin-box-model = { path = "model" }
+mappin-box-model = { path = "model" }
 enigma-embedded-bridge-protocol = { path = "../vendor/enigma/apps/embedded/bridge-protocol" }
 enigma-embedded-core = { path = "../vendor/enigma/apps/embedded/core" }
-esp-idf-svc = { version = "0.52.1", features = ["critical-section"] }
+# Initializes the required Wi-Fi task stack field on ESP-IDF 6.1.1 and later.
+esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf.git", rev = "6d804b1ffbba33272542c4395177097f6ef0082d", features = ["critical-section"] }
 idevice = { git = "https://github.com/jkcoxson/idevice.git", rev = "63a341d7f624b5c1f2540e4cecb269151a2caf52", default-features = false, features = ["core_device_proxy", "dvt", "location_simulation", "remote_pairing", "rsd", "rustcrypto", "tcp", "tunnel_tcp_stack"] }
 log = "0.4"
 plist = "1"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
-tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "sync", "time"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 
 [build-dependencies]
 embuild = "0.33"
